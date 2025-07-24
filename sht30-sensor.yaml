@@ -1,12 +1,10 @@
 esphome:
-  name: sht30-uart-sensor
-  includes:
-    - sht30_uart.h
-  on_boot:
-    priority: -100
-    then:
-      - delay: 3s
-      - logger.log: "SHT30 UART传感器设备启动完成"
+  name: myesp8266
+  # on_boot:
+  #   priority: -100
+  #   then:
+  #     - delay: 3s
+  #     - logger.log: "SHT30 UART传感器设备启动完成"
 
 esp8266:
   board: nodemcuv2
@@ -15,42 +13,40 @@ esp8266:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-  # 可选：设置静态IP（如果需要）
-  # manual_ip:
-  #   static_ip: 192.168.1.100
-  #   gateway: 192.168.1.1
-  #   subnet: 255.255.255.0
-
+  
   # WiFi连接失败时的处理
   ap:
     ssid: "SHT30-UART Fallback Hotspot"
     password: "12345678"
 
+  # WiFi连接状态回调
+  on_connect:
+    - logger.log: "WiFi连接成功！"
+  on_disconnect:
+    - logger.log: "WiFi连接断开！"
+
 # UART配置 - 用于读取SHT30传感器数据
 uart:
   id: uart_bus
-  tx_pin: D1  # TX引脚 (GPIO5) - 如果需要发送命令到传感器
-  rx_pin: D2  # RX引脚 (GPIO4) - 接收传感器数据
+  tx_pin: D8  # TX引脚 (GPIO15) - 如果需要发送命令到传感器
+  rx_pin: D7  # RX引脚 (GPIO13) - 接收传感器数据
   baud_rate: 9600  # 波特率，根据您的传感器模块调整
   data_bits: 8
   parity: NONE
   stop_bits: 1
-i2c:
-  sda: D1  # SDA引脚 (GPIO5)
-  scl: D2  # SCL引脚 (GPIO4)
-  scan: true  # 启动时扫描I2C设备
+  rx_buffer_size: 512  # 增加接收缓冲区大小
+  debug:
+    direction: RX  # 只调试接收数据
+    dummy_receiver: false
 
+# 全局变量存储UART数据缓冲区
+globals:
+  - id: uart_buffer
+    type: std::string
+    restore_value: no
+    initial_value: '""'
 
 sensor:
-  - platform: dht
-    pin: D3  # 改为D3引脚，因为D2现在用于I2C SCL
-    temperature:
-      name: "Bed Room Temperature DHT11"
-    humidity:
-      name: "Bed Room Humidity DHT11"
-    update_interval: 60s
-    model: DHT11
   # SHT30 UART传感器 - 温度
   - platform: template
     name: "SHT30 UART Temperature"
@@ -79,13 +75,71 @@ sensor:
     name: "Uptime"
     update_interval: 60s
 
-# 使用UART读取传感器数据的自动化
+# UART数据处理间隔
 interval:
-  - interval: 2s
+  - interval: 100ms  # 每100ms检查一次UART数据
+    then:
+      - lambda: |-
+          // 读取UART数据
+          uint8_t data[256];
+          size_t len = id(uart_bus).read_array(data, sizeof(data));
+
+          ESP_LOGD("sht30_uart", "UART读取到 %d 字节数据", len);
+
+          if (len > 0) {
+            // 打印原始字节数据（十六进制）
+            std::string hex_data = "";
+            for (size_t i = 0; i < len; i++) {
+              char hex_char[4];
+              sprintf(hex_char, "%02X ", data[i]);
+              hex_data += hex_char;
+            }
+            ESP_LOGD("sht30_uart", "原始数据(HEX): %s", hex_data.c_str());
+
+            // 处理字符数据
+            for (size_t i = 0; i < len; i++) {
+              char c = (char)data[i];
+
+              // 打印可见字符
+              if (c >= 32 && c <= 126) {
+                ESP_LOGD("sht30_uart", "收到字符: '%c' (0x%02X)", c, (uint8_t)c);
+              } else {
+                ESP_LOGD("sht30_uart", "收到控制字符: 0x%02X", (uint8_t)c);
+              }
+
+              if (c == '\n' || c == '\r') {
+                // 处理完整的一行数据
+                if (!id(uart_buffer).empty()) {
+                  std::string line = id(uart_buffer);
+                  ESP_LOGI("sht30_uart", "完整行数据: '%s' (长度: %d)", line.c_str(), line.length());
+
+                  // 简化的数据解析 - 先看看实际收到什么格式
+                  if (line.length() > 5) {
+                    ESP_LOGI("sht30_uart", "尝试解析数据...");
+                    // 这里暂时只记录，不解析，先看看实际数据格式
+                  }
+
+                  id(uart_buffer) = "";  // 清空缓冲区
+                }
+              } else {
+                id(uart_buffer) += c;
+                // 防止缓冲区过长
+                if (id(uart_buffer).length() > 200) {
+                  ESP_LOGW("sht30_uart", "缓冲区过长，清空: %s", id(uart_buffer).c_str());
+                  id(uart_buffer) = "";
+                }
+              }
+            }
+          } else {
+            ESP_LOGD("sht30_uart", "UART无数据");
+          }
+
+  # 可选：定期发送读取命令到传感器
+  - interval: 5s
     then:
       - uart.write:
           id: uart_bus
-          data: "READ\r\n"  # 发送读取命令到传感器（如果需要）
+          data: "READ\r\n"  # 发送读取命令到传感器（如果传感器需要命令触发）
       
 # 文本传感器
 text_sensor:
@@ -113,7 +167,11 @@ switch:
 # 日志配置
 logger:
   baud_rate: 115200
-  level: INFO
+  level: DEBUG  # 改为DEBUG级别以查看详细信息
+  logs:
+    sht30_uart: DEBUG
+    uart_debug: INFO
+    uart: DEBUG
 
 # OTA更新
 ota:

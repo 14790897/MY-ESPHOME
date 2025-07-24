@@ -1,0 +1,221 @@
+esphome:
+  name: myesp32c3
+  friendly_name: "SHT30 ESP32-C3 Sensor"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# 从secrets.yaml文件中读取WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # WiFi连接失败时的处理
+  ap:
+    ssid: "ESP32C3-SHT30 Fallback Hotspot"
+    password: "12345678"
+
+  # WiFi连接状态回调
+  on_connect:
+    - logger.log: "WiFi连接成功！"
+  on_disconnect:
+    - logger.log: "WiFi连接断开！"
+
+# UART配置 - 用于读取SHT30传感器数据
+uart:
+  id: uart_bus
+  tx_pin: GPIO0  # TX引脚 - 如果需要发送命令到传感器
+  rx_pin: GPIO1  # RX引脚 - 接收传感器数据
+  baud_rate: 9600  # 尝试更高的波特率
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 512  # 增加接收缓冲区大小
+  debug:
+    direction: RX  # 只调试接收数据
+    dummy_receiver: false
+
+# 全局变量存储UART数据缓冲区
+globals:
+  - id: uart_buffer
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+sensor:
+  # SHT30 UART传感器 - 温度
+  - platform: template
+    name: "SHT30 UART Temperature"
+    id: sht30_temp
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+
+  # SHT30 UART传感器 - 湿度
+  - platform: template
+    name: "SHT30 UART Humidity"
+    id: sht30_hum
+    unit_of_measurement: "%"
+    device_class: humidity
+    state_class: measurement
+    accuracy_decimals: 1
+
+  # WiFi信号强度传感器
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+  # 设备运行时间传感器
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+  # ESP32-C3内部温度传感器
+  - platform: internal_temperature
+    name: "ESP32-C3 Internal Temperature"
+    update_interval: 60s
+
+# UART数据处理间隔
+interval:
+  - interval: 100ms  # 每100ms检查一次UART数据
+    then:
+      - lambda: |-
+          // 检查UART是否有可用数据
+          int available = id(uart_bus).available();
+          if (available > 0) {
+            ESP_LOGI("sht30_uart", "UART缓冲区有 %d 字节可用数据", available);
+
+            // 使用数组读取方式
+            uint8_t data[256];
+            std::string received_data = "";
+            std::string hex_data = "";
+
+            // 尝试读取一个字节
+            if (id(uart_bus).read_array(data, 1) > 0) {
+              ESP_LOGI("sht30_uart", "成功读取第一个字节: 0x%02X", data[0]);
+            }
+
+            // 尝试读取所有可用数据
+            int bytes_read = 0;
+            uint8_t buffer[1];
+
+            // 循环读取单个字节
+            while (id(uart_bus).available() && bytes_read < 256) {
+              if (id(uart_bus).read_array(buffer, 1) > 0) {
+                received_data += (char)buffer[0];
+
+                char hex_char[4];
+                sprintf(hex_char, "%02X ", buffer[0]);
+                hex_data += hex_char;
+
+                bytes_read++;
+              } else {
+                ESP_LOGW("sht30_uart", "读取单个字节失败");
+                break;
+              }
+            }
+
+            ESP_LOGI("sht30_uart", "实际读取到 %d 字节数据", bytes_read);
+            ESP_LOGI("sht30_uart", "原始数据(HEX): %s", hex_data.c_str());
+
+            // 打印可读字符串
+            std::string readable = "";
+            for (char c : received_data) {
+              if (c >= 32 && c <= 126) {
+                readable += c;
+              } else if (c == '\r') {
+                readable += "\\r";
+              } else if (c == '\n') {
+                readable += "\\n";
+              } else {
+                char hex_char[6];
+                sprintf(hex_char, "\\x%02X", (uint8_t)c);
+                readable += hex_char;
+              }
+            }
+            ESP_LOGI("sht30_uart", "可读数据: %s", readable.c_str());
+
+            // 处理接收到的数据行
+            for (char c : received_data) {
+              if (c == '\n' || c == '\r') {
+                if (!id(uart_buffer).empty()) {
+                  std::string line = id(uart_buffer);
+                  ESP_LOGI("sht30_uart", "完整行数据: '%s'", line.c_str());
+
+                  // 简单的数据解析示例
+                  if (line.find("R:") == 0 && line.length() >= 17) {
+                    ESP_LOGI("sht30_uart", "检测到SHT30数据格式");
+                  }
+
+                  id(uart_buffer) = "";
+                }
+              } else {
+                id(uart_buffer) += c;
+                if (id(uart_buffer).length() > 200) {
+                  id(uart_buffer) = "";
+                }
+              }
+            }
+          }
+
+  # 可选：定期发送读取命令到传感器
+  - interval: 5s
+    then:
+      - uart.write:
+          id: uart_bus
+          data: "READ\r\n"  # 发送读取命令到传感器（如果传感器需要命令触发）
+
+# 状态LED指示
+light:
+  - platform: status_led
+    name: "Status LED"
+    pin: GPIO8  # ESP32-C3开发板上的LED引脚
+
+# 文本传感器
+text_sensor:
+  # WiFi信息
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+    mac_address:
+      name: "Mac Address"
+
+# 二进制传感器
+binary_sensor:
+  # 设备状态
+  - platform: status
+    name: "Status"
+
+# 开关控制
+switch:
+  # 重启开关
+  - platform: restart
+    name: "Restart"
+
+# 日志配置
+logger:
+  baud_rate: 115200
+  level: DEBUG  # 改为DEBUG级别以查看详细信息
+  logs:
+    sht30_uart: DEBUG
+    uart_debug: INFO
+    uart: DEBUG
+
+# OTA更新
+ota:
+  platform: esphome
+
+# API配置
+api:
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password

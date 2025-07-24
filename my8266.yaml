@@ -14,11 +14,7 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
-# I2C配置 - SHT30需要I2C通信
-i2c:
-  sda: D1  # SDA引脚 (GPIO5)
-  scl: D2  # SCL引脚 (GPIO4)
-  scan: true  # 启动时扫描I2C设备
+
 
 sensor:
 # DHT11传感器 (保留原有配置)
