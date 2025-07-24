@@ -145,9 +145,30 @@ interval:
                   std::string line = id(uart_buffer);
                   ESP_LOGI("sht30_uart", "完整行数据: '%s'", line.c_str());
 
-                  // 简单的数据解析示例
-                  if (line.find("R:") == 0 && line.length() >= 17) {
-                    ESP_LOGI("sht30_uart", "检测到SHT30数据格式");
+                  // 解析SHT30数据格式: :068.9RH 031.6C
+                  if (line.find(":") == 0 && line.find("RH") != std::string::npos && line.find("C") != std::string::npos) {
+                    ESP_LOGI("sht30_uart", "检测到SHT30数据格式，开始解析");
+
+                    // 查找湿度数据 (RH前的数字)
+                    size_t rh_pos = line.find("RH");
+                    if (rh_pos != std::string::npos && rh_pos > 1) {
+                      // 从冒号后开始查找湿度值
+                      std::string humidity_str = line.substr(1, rh_pos - 1);
+                      float humidity = atof(humidity_str.c_str());
+                      ESP_LOGI("sht30_uart", "解析到湿度: %.1f%%", humidity);
+                      id(sht30_hum).publish_state(humidity);
+                    }
+
+                    // 查找温度数据 (C前的数字)
+                    size_t c_pos = line.find("C");
+                    size_t space_pos = line.find(" ");
+                    if (c_pos != std::string::npos && space_pos != std::string::npos && c_pos > space_pos) {
+                      // 从空格后开始查找温度值
+                      std::string temp_str = line.substr(space_pos + 1, c_pos - space_pos - 1);
+                      float temperature = atof(temp_str.c_str());
+                      ESP_LOGI("sht30_uart", "解析到温度: %.1f°C", temperature);
+                      id(sht30_temp).publish_state(temperature);
+                    }
                   }
 
                   id(uart_buffer) = "";
