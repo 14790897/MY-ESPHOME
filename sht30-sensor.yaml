@@ -1,0 +1,133 @@
+esphome:
+  name: sht30-uart-sensor
+  includes:
+    - sht30_uart.h
+  on_boot:
+    priority: -100
+    then:
+      - delay: 3s
+      - logger.log: "SHT30 UART传感器设备启动完成"
+
+esp8266:
+  board: nodemcuv2
+
+# 从secrets.yaml文件中读取WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # 可选：设置静态IP（如果需要）
+  # manual_ip:
+  #   static_ip: 192.168.1.100
+  #   gateway: 192.168.1.1
+  #   subnet: 255.255.255.0
+
+  # WiFi连接失败时的处理
+  ap:
+    ssid: "SHT30-UART Fallback Hotspot"
+    password: "12345678"
+
+# UART配置 - 用于读取SHT30传感器数据
+uart:
+  id: uart_bus
+  tx_pin: D1  # TX引脚 (GPIO5) - 如果需要发送命令到传感器
+  rx_pin: D2  # RX引脚 (GPIO4) - 接收传感器数据
+  baud_rate: 9600  # 波特率，根据您的传感器模块调整
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+i2c:
+  sda: D1  # SDA引脚 (GPIO5)
+  scl: D2  # SCL引脚 (GPIO4)
+  scan: true  # 启动时扫描I2C设备
+
+
+sensor:
+  - platform: dht
+    pin: D3  # 改为D3引脚，因为D2现在用于I2C SCL
+    temperature:
+      name: "Bed Room Temperature DHT11"
+    humidity:
+      name: "Bed Room Humidity DHT11"
+    update_interval: 60s
+    model: DHT11
+  # SHT30 UART传感器 - 温度
+  - platform: template
+    name: "SHT30 UART Temperature"
+    id: sht30_temp
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+
+  # SHT30 UART传感器 - 湿度
+  - platform: template
+    name: "SHT30 UART Humidity"
+    id: sht30_hum
+    unit_of_measurement: "%"
+    device_class: humidity
+    state_class: measurement
+    accuracy_decimals: 1
+
+  # WiFi信号强度传感器
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+  # 设备运行时间传感器
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# 使用UART读取传感器数据的自动化
+interval:
+  - interval: 2s
+    then:
+      - uart.write:
+          id: uart_bus
+          data: "READ\r\n"  # 发送读取命令到传感器（如果需要）
+      
+# 文本传感器
+text_sensor:
+  # WiFi信息
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+    mac_address:
+      name: "Mac Address"
+
+# 二进制传感器
+binary_sensor:
+  # 设备状态
+  - platform: status
+    name: "Status"
+
+# 开关控制
+switch:
+  # 重启开关
+  - platform: restart
+    name: "Restart"
+
+# 日志配置
+logger:
+  baud_rate: 115200
+  level: INFO
+
+# OTA更新
+ota:
+  platform: esphome
+  # password: !secret ota_password  # 可以从secrets.yaml读取OTA密码
+
+# API配置
+api:
+  # encryption:
+  #   key: !secret api_encryption_key  # 可以从secrets.yaml读取API密钥
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password  # 使用WiFi密码作为web界面密码

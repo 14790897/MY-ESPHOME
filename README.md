@@ -1,0 +1,1 @@
+esphome run sht30-sensor.yaml
