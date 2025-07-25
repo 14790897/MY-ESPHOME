@@ -76,16 +76,6 @@ sensor:
     state_class: "measurement"
     icon: "mdi:molecule-co2"
 
-  # WiFi信号强度传感器
-  - platform: wifi_signal
-    name: "WiFi Signal"
-    update_interval: 60s
-
-  # 设备运行时间传感器
-  - platform: uptime
-    name: "Uptime"
-    update_interval: 60s
-
   # ESP32-C3内部温度传感器
   - platform: internal_temperature
     name: "ESP32-C3 Internal Temperature"
