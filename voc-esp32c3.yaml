@@ -8,6 +8,14 @@ esp32:
   framework:
     type: arduino
 
+mqtt:
+  broker: 11ijEEhVAe.mqtts.acc.cmcconenet.cn   # 你的MQTT服务器IP
+  port: 1883              # 端口，默认1883
+  username: 11ijEEhVAe # 可选，MQTT用户名
+  password: your_password # 可选，MQTT密码
+  discovery: true         # 建议开启，便于Home Assistant自动发现
+  # propertyPostTopic = "$sys/" + String(ONENET_PRODUCT_ID) + "/" + String(ONENET_DEVICE_NAME) + "/thing/property/post";
+
 # 从secrets.yaml文件中读取WiFi配置
 wifi:
   ssid: !secret wifi_ssid
@@ -287,9 +295,9 @@ switch:
 # 日志配置
 logger:
   baud_rate: 115200
-  level: WARN  # 显示传感器数据
+  level: INFO  # 显示传感器数据
   logs:
-    voc_uart: WARN    # 显示VOC传感器数据
+    voc_uart: INFO    # 显示VOC传感器数据
     uart_debug: WARN  # 减少UART调试信息
     uart: WARN        # 减少UART日志
     wifi: WARN        # 减少WiFi日志
