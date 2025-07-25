@@ -1,6 +1,6 @@
 esphome:
-  name: myesp32c3
-  friendly_name: "SHT30 ESP32-C3 Sensor"
+  name: voc-myesp32c3
+  friendly_name: "VOC-CO2-HCHO ESP32-C3 Sensor"
 
 esp32:
   board: airm2m_core_esp32c3
@@ -14,7 +14,7 @@ wifi:
   
   # WiFi连接失败时的处理
   ap:
-    ssid: "ESP32C3-SHT30 Fallback Hotspot"
+    ssid: "ESP32C3-VOC Fallback Hotspot"
     password: "12345678"
 
   # WiFi连接状态回调
@@ -23,33 +23,63 @@ wifi:
   on_disconnect:
     - logger.log: "WiFi连接断开！"
 
-# UART配置 - 用于读取SHT30传感器数据
+# UART配置 - 用于读取VOC-CO2-HCHO传感器数据
 uart:
   id: uart_bus
-  tx_pin: GPIO0  # TX引脚 - 如果需要发送命令到传感器
-  rx_pin: GPIO1  # RX引脚 - 接收传感器数据
-  baud_rate: 9600  # 尝试更高的波特率
+  tx_pin: GPIO0  # TX引脚 - 接传感器RX
+  rx_pin: GPIO1  # RX引脚 - 接传感器TX
+  baud_rate: 9600  # VOC传感器波特率
   data_bits: 8
   parity: NONE
   stop_bits: 1
   rx_buffer_size: 512  # 增加接收缓冲区大小
 
-# 全局变量存储UART数据缓冲区和上次数值
+# 全局变量存储VOC传感器数据和上次数值
 globals:
   - id: uart_buffer
-    type: std::string
+    type: std::vector<uint8_t>
     restore_value: no
-    initial_value: '""'
-  - id: last_temperature
+  - id: last_tvoc
     type: float
     restore_value: no
-    initial_value: '-999.0'  # 初始值设为不可能的温度
-  - id: last_humidity
+    initial_value: '-999.0'  # 初始值设为不可能的TVOC浓度
+  - id: last_hcho
     type: float
     restore_value: no
-    initial_value: '-999.0'  # 初始值设为不可能的湿度
+    initial_value: '-999.0'  # 初始值设为不可能的甲醛浓度
+  - id: last_co2
+    type: float
+    restore_value: no
+    initial_value: '-999.0'  # 初始值设为不可能的CO2浓度
 
 sensor:
+  # VOC-CO2-HCHO传感器数据
+  - platform: template
+    name: "TVOC"
+    id: voc_tvoc
+    unit_of_measurement: "mg/m³"
+    accuracy_decimals: 3
+    device_class: "volatile_organic_compounds"
+    state_class: "measurement"
+    icon: "mdi:chemical-weapon"
+
+  - platform: template
+    name: "Formaldehyde"
+    id: voc_hcho
+    unit_of_measurement: "mg/m³"
+    accuracy_decimals: 3
+    device_class: "volatile_organic_compounds"
+    state_class: "measurement"
+    icon: "mdi:molecule"
+
+  - platform: template
+    name: "CO2"
+    id: voc_co2
+    unit_of_measurement: "mg/m³"
+    accuracy_decimals: 3
+    device_class: "carbon_dioxide"
+    state_class: "measurement"
+    icon: "mdi:molecule-co2"
 
   # WiFi信号强度传感器
   - platform: wifi_signal
@@ -66,108 +96,152 @@ sensor:
     name: "ESP32-C3 Internal Temperature"
     update_interval: 60s
 
-# UART数据处理间隔
+# VOC传感器数据处理间隔
 interval:
-  - interval: 1000ms  # 每100ms检查一次UART数据
+  - interval: 2000ms  # 每2秒检查一次UART数据
     then:
       - lambda: |-
           // 检查UART是否有可用数据
           int available = id(uart_bus).available();
           if (available > 0) {
-            // 简化日志输出，只在调试时显示详细信息
-            // ESP_LOGD("sht30_uart", "UART缓冲区有 %d 字节可用数据", available);
+            ESP_LOGD("voc_uart", "UART缓冲区有 %d 字节可用数据", available);
 
-            // 使用数组读取方式
-            uint8_t data[256];
-            std::string received_data = "";
-
-            // 尝试读取所有可用数据
+            // 读取所有可用数据到缓冲区
+            uint8_t buffer[64];
             int bytes_read = 0;
-            uint8_t buffer[1];
 
-            // 循环读取单个字节
-            while (id(uart_bus).available() && bytes_read < 256) {
-              if (id(uart_bus).read_array(buffer, 1) > 0) {
-                received_data += (char)buffer[0];
-                bytes_read++;
-              } else {
-                break;
+            // 使用read_array方法读取数据
+            bytes_read = id(uart_bus).read_array(buffer, std::min(available, 64));
+
+            if (bytes_read > 0) {
+              // 添加到全局缓冲区
+              for (int i = 0; i < bytes_read; i++) {
+                id(uart_buffer).push_back(buffer[i]);
               }
-            }
 
-            // 处理接收到的数据行
-            for (char c : received_data) {
-              if (c == '\n' || c == '\r') {
-                if (!id(uart_buffer).empty()) {
-                  std::string line = id(uart_buffer);
-                  // ESP_LOGD("sht30_uart", "完整行数据: '%s'", line.c_str());
+              // 详细输出接收到的原始数据
+              ESP_LOGI("voc_uart", "接收到 %d 字节数据:", bytes_read);
+              std::string hex_data = "";
+              for (int i = 0; i < bytes_read; i++) {
+                char hex_str[4];
+                sprintf(hex_str, "%02X ", buffer[i]);
+                hex_data += hex_str;
+              }
+              ESP_LOGI("voc_uart", "原始数据: %s", hex_data.c_str());
 
-                  // 解析SHT30数据格式: R:070.0RH 031.5C
-                  if (line.find("R:") == 0 && line.find("RH") != std::string::npos && line.find("C") != std::string::npos) {
-                    ESP_LOGI("sht30_uart", "检测到SHT30数据格式，开始解析: '%s'", line.c_str());
+              // 查找完整的数据帧 (9字节，以0x2C 0xE4开头)
+              auto &buf = id(uart_buffer);
+              for (size_t i = 0; i <= buf.size() - 9; i++) {
+                if (buf[i] == 0x2C && buf[i + 1] == 0xE4) {
+                  ESP_LOGI("voc_uart", "在位置 %u 找到帧头 0x2C 0xE4", (unsigned int)i);
 
-                    // 查找湿度数据 (RH前的数字)
-                    size_t rh_pos = line.find("RH");
-                    if (rh_pos != std::string::npos && rh_pos > 2) {
-                      // 从R:后开始查找湿度值
-                      std::string humidity_str = line.substr(2, rh_pos - 2);
-                      float humidity = atof(humidity_str.c_str());
-
-                      // 湿度极端值过滤 (0-100%)
-                      if (humidity >= 0.0 && humidity <= 100.0) {
-                        // 检查数值变化是否足够大 (变化超过0.5%才更新)
-                        if (id(last_humidity) == -999.0 || abs(humidity - id(last_humidity)) >= 0.5) {
-                          ESP_LOGI("sht30_uart", "湿度: %.1f%%", humidity);
-                          id(sht30_hum).publish_state(humidity);
-                          id(last_humidity) = humidity;
-                        }
-                      } else {
-                        ESP_LOGW("sht30_uart", "湿度异常值被过滤 - 原始数据: '%s', 解析值: %.1f%%, 有效范围: 0-100%%", line.c_str(), humidity);
-                      }
-                    }
-
-                    // 查找温度数据 (C前的数字)
-                    size_t c_pos = line.find("C");
-                    size_t space_pos = line.find(" ");
-                    if (c_pos != std::string::npos && space_pos != std::string::npos && c_pos > space_pos) {
-                      // 从空格后开始查找温度值
-                      std::string temp_str = line.substr(space_pos + 1, c_pos - space_pos - 1);
-                      float temperature = atof(temp_str.c_str());
-
-                      // 温度极端值过滤 (-40°C 到 80°C)
-                      if (temperature >= -40.0 && temperature <= 80.0) {
-                        // 检查数值变化是否足够大 (变化超过0.2°C才更新)
-                        if (id(last_temperature) == -999.0 || abs(temperature - id(last_temperature)) >= 0.2) {
-                          ESP_LOGI("sht30_uart", "温度: %.1f°C", temperature);
-                          id(sht30_temp).publish_state(temperature);
-                          id(last_temperature) = temperature;
-                        }
-                      } else {
-                        ESP_LOGW("sht30_uart", "温度异常值被过滤 - 原始数据: '%s', 解析值: %.1f°C, 有效范围: -40~80°C", line.c_str(), temperature);
-                      }
-                    }
-                  } else if (!line.empty()) {
-                    // 记录无法解析的数据格式
-                    ESP_LOGW("sht30_uart", "无法解析的数据格式 - 原始数据: '%s'", line.c_str());
+                  // 找到帧头，提取9字节数据帧
+                  uint8_t frame[9];
+                  for (int j = 0; j < 9; j++) {
+                    frame[j] = buf[i + j];
                   }
 
-                  id(uart_buffer) = "";
+                  ESP_LOGI("voc_uart", "提取的完整帧: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                           frame[0], frame[1], frame[2], frame[3], frame[4],
+                           frame[5], frame[6], frame[7], frame[8]);
+
+                  // 验证校验和 (B1+B2+...+B8的低8位)
+                  uint8_t checksum = 0;
+                  for (int j = 0; j < 8; j++) {
+                    checksum += frame[j];
+                  }
+
+                  // 检查校验和但不严格要求匹配（像原始C++代码一样）
+                  if ((checksum & 0xFF) != frame[8]) {
+                    ESP_LOGW("voc_uart", "校验和不匹配，但继续解析数据");
+                    ESP_LOGW("voc_uart", "计算校验和: 0x%02X, 接收校验和: 0x%02X",
+                             (checksum & 0xFF), frame[8]);
+                  }
+
+                  ESP_LOGI("voc_uart", "找到数据帧，开始解析");
+
+                  // 详细输出原始数据帧
+                  ESP_LOGI("voc_uart", "原始数据帧: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                           frame[0], frame[1], frame[2], frame[3], frame[4],
+                           frame[5], frame[6], frame[7], frame[8]);
+
+                  // 解析VOC数据
+                  // TVOC浓度 (mg/m³): (B3*256 + B4) × 0.001
+                  uint16_t tvoc_raw = frame[2] * 256 + frame[3];
+                  float tvoc = (float)tvoc_raw * 0.001;
+
+                  // 甲醛浓度 (mg/m³): (B5*256 + B6) × 0.001
+                  uint16_t hcho_raw = frame[4] * 256 + frame[5];
+                  float hcho = (float)hcho_raw * 0.001;
+
+                  // CO₂浓度 (mg/m³): (B7*256 + B8) × 0.001
+                  uint16_t co2_raw = frame[6] * 256 + frame[7];
+                  float co2 = (float)co2_raw * 0.001;
+
+                  ESP_LOGI("voc_uart", "解析结果 - TVOC原始值: %d, 甲醛原始值: %d, CO₂原始值: %d",
+                           tvoc_raw, hcho_raw, co2_raw);
+
+                  // 数据有效性检查和发布
+                  if (tvoc >= 0.0 && tvoc <= 10.0) {  // TVOC合理范围
+                    if (id(last_tvoc) == -999.0 || abs(tvoc - id(last_tvoc)) >= 0.001) {
+                      ESP_LOGI("voc_uart", "TVOC: %.3f mg/m³", tvoc);
+                      id(voc_tvoc).publish_state(tvoc);
+                      id(last_tvoc) = tvoc;
+                    }
+                  }
+
+                  if (hcho >= 0.0 && hcho <= 1.0) {  // 甲醛合理范围
+                    if (id(last_hcho) == -999.0 || abs(hcho - id(last_hcho)) >= 0.001) {
+                      ESP_LOGI("voc_uart", "甲醛: %.3f mg/m³", hcho);
+                      id(voc_hcho).publish_state(hcho);
+                      id(last_hcho) = hcho;
+                    }
+                  }
+
+                  if (co2 >= 0.0 && co2 <= 5.0) {  // CO2合理范围
+                    if (id(last_co2) == -999.0 || abs(co2 - id(last_co2)) >= 0.001) {
+                      ESP_LOGI("voc_uart", "CO₂: %.3f mg/m³", co2);
+                      id(voc_co2).publish_state(co2);
+                      id(last_co2) = co2;
+                    }
+                  }
+
+                  // 移除已处理的数据
+                  buf.erase(buf.begin(), buf.begin() + i + 9);
+                  break;
                 }
-              } else {
-                id(uart_buffer) += c;
-                if (id(uart_buffer).length() > 200) {
-                  id(uart_buffer) = "";
+              }
+
+              // 如果没有找到有效帧头，输出当前缓冲区内容用于调试
+              if (buf.size() >= 9) {
+                bool found_frame = false;
+                for (size_t i = 0; i <= buf.size() - 9; i++) {
+                  if (buf[i] == 0x2C && buf[i + 1] == 0xE4) {
+                    found_frame = true;
+                    break;
+                  }
                 }
+                if (!found_frame) {
+                  ESP_LOGW("voc_uart", "缓冲区中未找到有效帧头，当前缓冲区大小: %u", (unsigned int)buf.size());
+                  std::string debug_data = "";
+                  for (size_t i = 0; i < std::min(buf.size(), (size_t)20); i++) {
+                    char hex_str[4];
+                    sprintf(hex_str, "%02X ", buf[i]);
+                    debug_data += hex_str;
+                  }
+                  ESP_LOGW("voc_uart", "缓冲区前20字节: %s", debug_data.c_str());
+                }
+              }
+
+              // 清理过长的缓冲区
+              if (buf.size() > 100) {
+                ESP_LOGW("voc_uart", "缓冲区过长(%u字节)，清空缓冲区", (unsigned int)buf.size());
+                buf.clear();
               }
             }
           }
 
-  # 可选：定期发送读取命令到传感器
-  - interval: 5s
-    then:
-      - uart.write:
-          id: uart_bus
-          data: "READ\r\n"  # 发送读取命令到传感器（如果传感器需要命令触发）
+  # VOC传感器不需要发送命令，它会自动发送数据
 
 # # 状态LED指示
 # light:
@@ -201,9 +275,9 @@ switch:
 # 日志配置
 logger:
   baud_rate: 115200
-  level: WARN  # 只显示重要信息
+  level: INFO  # 显示传感器数据
   logs:
-    sht30_uart: WARN  # 只显示传感器数据
+    voc_uart: INFO    # 显示VOC传感器数据
     uart_debug: WARN  # 减少UART调试信息
     uart: WARN        # 减少UART日志
     wifi: WARN        # 减少WiFi日志

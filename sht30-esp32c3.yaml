@@ -1,5 +1,5 @@
 esphome:
-  name: myesp32c3
+  name: myesp32c3-SHT30
   friendly_name: "SHT30 ESP32-C3 Sensor"
 
 esp32:
@@ -237,6 +237,7 @@ ota:
 
 # API配置
 api:
+  # use_address: 192.168.0.109  # 👈 强制连接该地址
 
 # Web服务器
 web_server:
