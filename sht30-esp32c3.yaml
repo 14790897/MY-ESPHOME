@@ -33,16 +33,24 @@ uart:
   parity: NONE
   stop_bits: 1
   rx_buffer_size: 512  # 增加接收缓冲区大小
-  debug:
-    direction: RX  # 只调试接收数据
-    dummy_receiver: false
+  # debug:  # 关闭UART调试以减少日志输出
+  #   direction: RX
+  #   dummy_receiver: false
 
-# 全局变量存储UART数据缓冲区
+# 全局变量存储UART数据缓冲区和上次数值
 globals:
   - id: uart_buffer
     type: std::string
     restore_value: no
     initial_value: '""'
+  - id: last_temperature
+    type: float
+    restore_value: no
+    initial_value: '-999.0'  # 初始值设为不可能的温度
+  - id: last_humidity
+    type: float
+    restore_value: no
+    initial_value: '-999.0'  # 初始值设为不可能的湿度
 
 sensor:
   # SHT30 UART传感器 - 温度
@@ -86,17 +94,12 @@ interval:
           // 检查UART是否有可用数据
           int available = id(uart_bus).available();
           if (available > 0) {
-            ESP_LOGI("sht30_uart", "UART缓冲区有 %d 字节可用数据", available);
+            // 简化日志输出，只在调试时显示详细信息
+            // ESP_LOGD("sht30_uart", "UART缓冲区有 %d 字节可用数据", available);
 
             // 使用数组读取方式
             uint8_t data[256];
             std::string received_data = "";
-            std::string hex_data = "";
-
-            // 尝试读取一个字节
-            if (id(uart_bus).read_array(data, 1) > 0) {
-              ESP_LOGI("sht30_uart", "成功读取第一个字节: 0x%02X", data[0]);
-            }
 
             // 尝试读取所有可用数据
             int bytes_read = 0;
@@ -106,48 +109,22 @@ interval:
             while (id(uart_bus).available() && bytes_read < 256) {
               if (id(uart_bus).read_array(buffer, 1) > 0) {
                 received_data += (char)buffer[0];
-
-                char hex_char[4];
-                sprintf(hex_char, "%02X ", buffer[0]);
-                hex_data += hex_char;
-
                 bytes_read++;
               } else {
-                ESP_LOGW("sht30_uart", "读取单个字节失败");
                 break;
               }
             }
-
-            ESP_LOGI("sht30_uart", "实际读取到 %d 字节数据", bytes_read);
-            ESP_LOGI("sht30_uart", "原始数据(HEX): %s", hex_data.c_str());
-
-            // 打印可读字符串
-            std::string readable = "";
-            for (char c : received_data) {
-              if (c >= 32 && c <= 126) {
-                readable += c;
-              } else if (c == '\r') {
-                readable += "\\r";
-              } else if (c == '\n') {
-                readable += "\\n";
-              } else {
-                char hex_char[6];
-                sprintf(hex_char, "\\x%02X", (uint8_t)c);
-                readable += hex_char;
-              }
-            }
-            ESP_LOGI("sht30_uart", "可读数据: %s", readable.c_str());
 
             // 处理接收到的数据行
             for (char c : received_data) {
               if (c == '\n' || c == '\r') {
                 if (!id(uart_buffer).empty()) {
                   std::string line = id(uart_buffer);
-                  ESP_LOGI("sht30_uart", "完整行数据: '%s'", line.c_str());
+                  // ESP_LOGD("sht30_uart", "完整行数据: '%s'", line.c_str());
 
                   // 解析SHT30数据格式: :068.9RH 031.6C
                   if (line.find(":") == 0 && line.find("RH") != std::string::npos && line.find("C") != std::string::npos) {
-                    ESP_LOGI("sht30_uart", "检测到SHT30数据格式，开始解析");
+                    // ESP_LOGD("sht30_uart", "检测到SHT30数据格式，开始解析");
 
                     // 查找湿度数据 (RH前的数字)
                     size_t rh_pos = line.find("RH");
@@ -155,8 +132,18 @@ interval:
                       // 从冒号后开始查找湿度值
                       std::string humidity_str = line.substr(1, rh_pos - 1);
                       float humidity = atof(humidity_str.c_str());
-                      ESP_LOGI("sht30_uart", "解析到湿度: %.1f%%", humidity);
-                      id(sht30_hum).publish_state(humidity);
+
+                      // 湿度极端值过滤 (0-100%)
+                      if (humidity >= 0.0 && humidity <= 100.0) {
+                        // 检查数值变化是否足够大 (变化超过0.5%才更新)
+                        if (id(last_humidity) == -999.0 || abs(humidity - id(last_humidity)) >= 0.5) {
+                          ESP_LOGI("sht30_uart", "湿度: %.1f%%", humidity);
+                          id(sht30_hum).publish_state(humidity);
+                          id(last_humidity) = humidity;
+                        }
+                      } else {
+                        ESP_LOGW("sht30_uart", "湿度异常值被过滤 - 原始数据: '%s', 解析值: %.1f%%, 有效范围: 0-100%%", line.c_str(), humidity);
+                      }
                     }
 
                     // 查找温度数据 (C前的数字)
@@ -166,9 +153,22 @@ interval:
                       // 从空格后开始查找温度值
                       std::string temp_str = line.substr(space_pos + 1, c_pos - space_pos - 1);
                       float temperature = atof(temp_str.c_str());
-                      ESP_LOGI("sht30_uart", "解析到温度: %.1f°C", temperature);
-                      id(sht30_temp).publish_state(temperature);
+
+                      // 温度极端值过滤 (-40°C 到 80°C)
+                      if (temperature >= -40.0 && temperature <= 80.0) {
+                        // 检查数值变化是否足够大 (变化超过0.2°C才更新)
+                        if (id(last_temperature) == -999.0 || abs(temperature - id(last_temperature)) >= 0.2) {
+                          ESP_LOGI("sht30_uart", "温度: %.1f°C", temperature);
+                          id(sht30_temp).publish_state(temperature);
+                          id(last_temperature) = temperature;
+                        }
+                      } else {
+                        ESP_LOGW("sht30_uart", "温度异常值被过滤 - 原始数据: '%s', 解析值: %.1f°C, 有效范围: -40~80°C", line.c_str(), temperature);
+                      }
                     }
+                  } else if (!line.empty()) {
+                    // 记录无法解析的数据格式
+                    ESP_LOGW("sht30_uart", "无法解析的数据格式 - 原始数据: '%s'", line.c_str());
                   }
 
                   id(uart_buffer) = "";
@@ -221,11 +221,15 @@ switch:
 # 日志配置
 logger:
   baud_rate: 115200
-  level: DEBUG  # 改为DEBUG级别以查看详细信息
+  level: INFO  # 只显示重要信息
   logs:
-    sht30_uart: DEBUG
-    uart_debug: INFO
-    uart: DEBUG
+    sht30_uart: INFO  # 只显示传感器数据
+    uart_debug: WARN  # 减少UART调试信息
+    uart: WARN        # 减少UART日志
+    wifi: WARN        # 减少WiFi日志
+    api: WARN         # 减少API日志
+    ota: WARN         # 减少OTA日志
+    web_server: WARN  # 减少Web服务器日志
 
 # OTA更新
 ota:
