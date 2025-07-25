@@ -122,15 +122,15 @@ interval:
                   std::string line = id(uart_buffer);
                   // ESP_LOGD("sht30_uart", "完整行数据: '%s'", line.c_str());
 
-                  // 解析SHT30数据格式: :068.9RH 031.6C
-                  if (line.find(":") == 0 && line.find("RH") != std::string::npos && line.find("C") != std::string::npos) {
-                    // ESP_LOGD("sht30_uart", "检测到SHT30数据格式，开始解析");
+                  // 解析SHT30数据格式: R:070.0RH 031.5C
+                  if (line.find("R:") == 0 && line.find("RH") != std::string::npos && line.find("C") != std::string::npos) {
+                    ESP_LOGI("sht30_uart", "检测到SHT30数据格式，开始解析: '%s'", line.c_str());
 
                     // 查找湿度数据 (RH前的数字)
                     size_t rh_pos = line.find("RH");
-                    if (rh_pos != std::string::npos && rh_pos > 1) {
-                      // 从冒号后开始查找湿度值
-                      std::string humidity_str = line.substr(1, rh_pos - 1);
+                    if (rh_pos != std::string::npos && rh_pos > 2) {
+                      // 从R:后开始查找湿度值
+                      std::string humidity_str = line.substr(2, rh_pos - 2);
                       float humidity = atof(humidity_str.c_str());
 
                       // 湿度极端值过滤 (0-100%)
@@ -193,7 +193,7 @@ interval:
 light:
   - platform: status_led
     name: "Status LED"
-    pin: GPIO8  # ESP32-C3开发板上的LED引脚
+    pin: GPIO13  # ESP32-C3开发板上的LED引脚
 
 # 文本传感器
 text_sensor:
@@ -221,7 +221,7 @@ switch:
 # 日志配置
 logger:
   baud_rate: 115200
-  level: INFO  # 只显示重要信息
+  level: WARN  # 只显示重要信息
   logs:
     sht30_uart: INFO  # 只显示传感器数据
     uart_debug: WARN  # 减少UART调试信息
