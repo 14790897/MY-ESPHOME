@@ -1,5 +1,5 @@
 esphome:
-  name: myesp32c3-SHT30
+  name: myesp32c3-sht30
   friendly_name: "SHT30 ESP32-C3 Sensor"
 
 esp32:

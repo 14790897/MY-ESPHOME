@@ -1,5 +1,6 @@
 esphome:
   name: voc-myesp32c3
+  # name: voc-esp32c3
   friendly_name: "VOC-CO2-HCHO ESP32-C3 Sensor"
 
 esp32:
@@ -36,9 +37,6 @@ uart:
 
 # 全局变量存储VOC传感器数据和上次数值
 globals:
-  - id: uart_buffer
-    type: std::vector<uint8_t>
-    restore_value: no
   - id: last_tvoc
     type: float
     restore_value: no
@@ -53,22 +51,20 @@ globals:
     initial_value: '-999.0'  # 初始值设为不可能的CO2浓度
 
 sensor:
-  # VOC-CO2-HCHO传感器数据
+  # VOC-CO2-HCHO传感器数据 - 严格按照test_VOC-CO2-HCHO-Sensor.cpp定义
   - platform: template
     name: "TVOC"
     id: voc_tvoc
     unit_of_measurement: "mg/m³"
     accuracy_decimals: 3
-    device_class: "volatile_organic_compounds"
     state_class: "measurement"
     icon: "mdi:chemical-weapon"
 
   - platform: template
-    name: "Formaldehyde"
+    name: "Formaldehyde (CH₂O)"
     id: voc_hcho
     unit_of_measurement: "mg/m³"
     accuracy_decimals: 3
-    device_class: "volatile_organic_compounds"
     state_class: "measurement"
     icon: "mdi:molecule"
 
@@ -77,7 +73,6 @@ sensor:
     id: voc_co2
     unit_of_measurement: "mg/m³"
     accuracy_decimals: 3
-    device_class: "carbon_dioxide"
     state_class: "measurement"
     icon: "mdi:molecule-co2"
 
@@ -96,149 +91,186 @@ sensor:
     name: "ESP32-C3 Internal Temperature"
     update_interval: 60s
 
-# VOC传感器数据处理间隔
+# VOC传感器数据处理间隔 - 严格按照test_VOC-CO2-HCHO-Sensor.cpp实现
 interval:
-  - interval: 2000ms  # 每2秒检查一次UART数据
+  - interval: 2000ms  # 每2秒检查一次UART数据，与C++代码的READ_INTERVAL一致
     then:
       - lambda: |-
-          // 检查UART是否有可用数据
-          int available = id(uart_bus).available();
-          if (available > 0) {
-            ESP_LOGD("voc_uart", "UART缓冲区有 %d 字节可用数据", available);
+          ESP_LOGI("voc_uart", "⏰ 开始读取21VOC传感器数据");
 
-            // 读取所有可用数据到缓冲区
-            uint8_t buffer[64];
-            int bytes_read = 0;
+          // 清空接收缓冲区中的旧数据 (像C++代码一样)
+          int cleared = 0;
+          uint8_t dummy_buffer[1];
+          while (id(uart_bus).available()) {
+            if (id(uart_bus).read_array(dummy_buffer, 1) > 0) {
+              cleared++;
+            }
+            delay(1);
+          }
+          if (cleared > 0) {
+            ESP_LOGI("voc_uart", "清空了%d字节旧数据", cleared);
+          }
 
-            // 使用read_array方法读取数据
-            bytes_read = id(uart_bus).read_array(buffer, std::min(available, 64));
+          // 等待数据到达，超时2秒 (像C++代码一样)
+          uint8_t buffer[64];
+          int bytesRead = 0;
+          unsigned long startTime = millis();
 
-            if (bytes_read > 0) {
-              // 添加到全局缓冲区
-              for (int i = 0; i < bytes_read; i++) {
-                id(uart_buffer).push_back(buffer[i]);
+          while (bytesRead < 64 && (millis() - startTime) < 2000) {
+            if (id(uart_bus).available()) {
+              uint8_t single_byte[1];
+              if (id(uart_bus).read_array(single_byte, 1) > 0) {
+                buffer[bytesRead] = single_byte[0];
+                bytesRead++;
               }
 
-              // 详细输出接收到的原始数据
-              ESP_LOGI("voc_uart", "接收到 %d 字节数据:", bytes_read);
-              std::string hex_data = "";
-              for (int i = 0; i < bytes_read; i++) {
-                char hex_str[4];
-                sprintf(hex_str, "%02X ", buffer[i]);
-                hex_data += hex_str;
+              // 如果连续没有新数据超过100ms，认为一帧数据接收完成
+              unsigned long lastByteTime = millis();
+              while (!id(uart_bus).available() && (millis() - lastByteTime) < 100) {
+                delay(5);
               }
-              ESP_LOGI("voc_uart", "原始数据: %s", hex_data.c_str());
-
-              // 查找完整的数据帧 (9字节，以0x2C 0xE4开头)
-              auto &buf = id(uart_buffer);
-              for (size_t i = 0; i <= buf.size() - 9; i++) {
-                if (buf[i] == 0x2C && buf[i + 1] == 0xE4) {
-                  ESP_LOGI("voc_uart", "在位置 %u 找到帧头 0x2C 0xE4", (unsigned int)i);
-
-                  // 找到帧头，提取9字节数据帧
-                  uint8_t frame[9];
-                  for (int j = 0; j < 9; j++) {
-                    frame[j] = buf[i + j];
-                  }
-
-                  ESP_LOGI("voc_uart", "提取的完整帧: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                           frame[0], frame[1], frame[2], frame[3], frame[4],
-                           frame[5], frame[6], frame[7], frame[8]);
-
-                  // 验证校验和 (B1+B2+...+B8的低8位)
-                  uint8_t checksum = 0;
-                  for (int j = 0; j < 8; j++) {
-                    checksum += frame[j];
-                  }
-
-                  // 检查校验和但不严格要求匹配（像原始C++代码一样）
-                  if ((checksum & 0xFF) != frame[8]) {
-                    ESP_LOGW("voc_uart", "校验和不匹配，但继续解析数据");
-                    ESP_LOGW("voc_uart", "计算校验和: 0x%02X, 接收校验和: 0x%02X",
-                             (checksum & 0xFF), frame[8]);
-                  }
-
-                  ESP_LOGI("voc_uart", "找到数据帧，开始解析");
-
-                  // 详细输出原始数据帧
-                  ESP_LOGI("voc_uart", "原始数据帧: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                           frame[0], frame[1], frame[2], frame[3], frame[4],
-                           frame[5], frame[6], frame[7], frame[8]);
-
-                  // 解析VOC数据
-                  // TVOC浓度 (mg/m³): (B3*256 + B4) × 0.001
-                  uint16_t tvoc_raw = frame[2] * 256 + frame[3];
-                  float tvoc = (float)tvoc_raw * 0.001;
-
-                  // 甲醛浓度 (mg/m³): (B5*256 + B6) × 0.001
-                  uint16_t hcho_raw = frame[4] * 256 + frame[5];
-                  float hcho = (float)hcho_raw * 0.001;
-
-                  // CO₂浓度 (mg/m³): (B7*256 + B8) × 0.001
-                  uint16_t co2_raw = frame[6] * 256 + frame[7];
-                  float co2 = (float)co2_raw * 0.001;
-
-                  ESP_LOGI("voc_uart", "解析结果 - TVOC原始值: %d, 甲醛原始值: %d, CO₂原始值: %d",
-                           tvoc_raw, hcho_raw, co2_raw);
-
-                  // 数据有效性检查和发布
-                  if (tvoc >= 0.0 && tvoc <= 10.0) {  // TVOC合理范围
-                    if (id(last_tvoc) == -999.0 || abs(tvoc - id(last_tvoc)) >= 0.001) {
-                      ESP_LOGI("voc_uart", "TVOC: %.3f mg/m³", tvoc);
-                      id(voc_tvoc).publish_state(tvoc);
-                      id(last_tvoc) = tvoc;
-                    }
-                  }
-
-                  if (hcho >= 0.0 && hcho <= 1.0) {  // 甲醛合理范围
-                    if (id(last_hcho) == -999.0 || abs(hcho - id(last_hcho)) >= 0.001) {
-                      ESP_LOGI("voc_uart", "甲醛: %.3f mg/m³", hcho);
-                      id(voc_hcho).publish_state(hcho);
-                      id(last_hcho) = hcho;
-                    }
-                  }
-
-                  if (co2 >= 0.0 && co2 <= 5.0) {  // CO2合理范围
-                    if (id(last_co2) == -999.0 || abs(co2 - id(last_co2)) >= 0.001) {
-                      ESP_LOGI("voc_uart", "CO₂: %.3f mg/m³", co2);
-                      id(voc_co2).publish_state(co2);
-                      id(last_co2) = co2;
-                    }
-                  }
-
-                  // 移除已处理的数据
-                  buf.erase(buf.begin(), buf.begin() + i + 9);
-                  break;
-                }
-              }
-
-              // 如果没有找到有效帧头，输出当前缓冲区内容用于调试
-              if (buf.size() >= 9) {
-                bool found_frame = false;
-                for (size_t i = 0; i <= buf.size() - 9; i++) {
-                  if (buf[i] == 0x2C && buf[i + 1] == 0xE4) {
-                    found_frame = true;
-                    break;
-                  }
-                }
-                if (!found_frame) {
-                  ESP_LOGW("voc_uart", "缓冲区中未找到有效帧头，当前缓冲区大小: %u", (unsigned int)buf.size());
-                  std::string debug_data = "";
-                  for (size_t i = 0; i < std::min(buf.size(), (size_t)20); i++) {
-                    char hex_str[4];
-                    sprintf(hex_str, "%02X ", buf[i]);
-                    debug_data += hex_str;
-                  }
-                  ESP_LOGW("voc_uart", "缓冲区前20字节: %s", debug_data.c_str());
-                }
-              }
-
-              // 清理过长的缓冲区
-              if (buf.size() > 100) {
-                ESP_LOGW("voc_uart", "缓冲区过长(%u字节)，清空缓冲区", (unsigned int)buf.size());
-                buf.clear();
+              if (!id(uart_bus).available()) {
+                break;
               }
             }
+            delay(10);
+          }
+
+          if (bytesRead > 0) {
+            // 调试：显示接收到的原始数据
+            ESP_LOGI("voc_uart", "📡 接收到 %d 字节:", bytesRead);
+            std::string hex_data = "";
+            for (int i = 0; i < bytesRead; i++) {
+              char hex_str[4];
+              sprintf(hex_str, "%02X ", buffer[i]);
+              hex_data += hex_str;
+            }
+            ESP_LOGI("voc_uart", "原始数据: %s", hex_data.c_str());
+
+            // 解析接收到的数据 - 严格按照C++代码的parseVOCData函数
+            ESP_LOGI("voc_uart", "🔍 解析数据: 长度=%d", bytesRead);
+
+            // 检查数据帧长度 (根据文档应该是9字节)
+            if (bytesRead < 9) {
+              ESP_LOGW("voc_uart", "数据长度不足（需要9字节，实际%d字节）", bytesRead);
+              return;
+            }
+
+            // 寻找正确的数据帧起始位置 (0x2C模块地址开头)
+            int frameStart = -1;
+            for (int i = 0; i <= bytesRead - 9; i++) {
+              if (buffer[i] == 0x2C && (i + 1 < bytesRead) && buffer[i + 1] == 0xE4) {
+                frameStart = i;
+                ESP_LOGI("voc_uart", "找到帧头0x2C 0xE4在位置%d", i);
+                break;
+              }
+            }
+
+            if (frameStart == -1) {
+              ESP_LOGW("voc_uart", "未找到有效的数据帧头 (0x2C 0xE4)");
+              return;
+            }
+
+            // 检查是否有足够的字节
+            if (frameStart + 9 > bytesRead) {
+              ESP_LOGW("voc_uart", "数据帧不完整，需要%d字节，实际只有%d字节", frameStart + 9, bytesRead);
+              return;
+            }
+
+            // 提取9字节数据帧
+            uint8_t frame[9];
+            for (int i = 0; i < 9; i++) {
+              frame[i] = buffer[frameStart + i];
+            }
+
+            // 显示数据帧
+            ESP_LOGI("voc_uart", "数据帧: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                     frame[0], frame[1], frame[2], frame[3], frame[4],
+                     frame[5], frame[6], frame[7], frame[8]);
+
+            // 计算校验和 (B1+B2+...+B8的低8位)
+            uint8_t checksum = 0;
+            for (int i = 0; i < 8; i++) {
+              checksum += frame[i];
+            }
+            checksum = checksum & 0xFF; // 取低8位
+
+            // 验证校验和
+            if (frame[8] != checksum) {
+              ESP_LOGW("voc_uart", "⚠️ 校验和不匹配，但继续解析数据 (接收: 0x%02X, 计算: 0x%02X)", frame[8], checksum);
+            }
+
+            // 按照文档协议解析数据
+            // TVOC浓度 (mg/m³): (B3*256 + B4) × 0.001
+            uint16_t tvoc_raw = frame[2] * 256 + frame[3];
+            float tvoc_mgm3 = (float)tvoc_raw * 0.001;
+
+            // 甲醛浓度 (mg/m³): (B5*256 + B6) × 0.001
+            uint16_t ch2o_raw = frame[4] * 256 + frame[5];
+            float ch2o_mgm3 = (float)ch2o_raw * 0.001;
+
+            // CO₂浓度 (mg/m³): (B7*256 + B8) × 0.001
+            uint16_t co2_raw = frame[6] * 256 + frame[7];
+            float co2_mgm3 = (float)co2_raw * 0.001;
+
+            ESP_LOGI("voc_uart", "✅ 解析成功:");
+            ESP_LOGI("voc_uart", "  🌿 TVOC: %.3f mg/m³", tvoc_mgm3);
+            ESP_LOGI("voc_uart", "  🏠 甲醛(CH₂O): %.3f mg/m³", ch2o_mgm3);
+            ESP_LOGI("voc_uart", "  💨 CO₂: %.3f mg/m³", co2_mgm3);
+
+            // 数据有效性检查 - 严格按照C++代码的validateVOCData函数
+            bool data_valid = true;
+
+            // 检查TVOC范围 (0-10 mg/m³)
+            if (tvoc_mgm3 < 0.0 || tvoc_mgm3 > 10.0) {
+              ESP_LOGW("voc_uart", "❌ TVOC数值超出范围: %.3f mg/m³", tvoc_mgm3);
+              data_valid = false;
+            }
+
+            // 检查甲醛范围 (0-2 mg/m³)
+            if (ch2o_mgm3 < 0.0 || ch2o_mgm3 > 2.0) {
+              ESP_LOGW("voc_uart", "❌ 甲醛数值超出范围: %.3f mg/m³", ch2o_mgm3);
+              data_valid = false;
+            }
+
+            // 检查CO₂范围 (0-10 mg/m³)
+            if (co2_mgm3 < 0.0 || co2_mgm3 > 10.0) {
+              ESP_LOGW("voc_uart", "❌ CO₂数值超出范围: %.3f mg/m³", co2_mgm3);
+              data_valid = false;
+            }
+
+            if (data_valid) {
+              ESP_LOGI("voc_uart", "📊 === VOC-CO2-HCHO传感器读数 ===");
+              ESP_LOGI("voc_uart", "⏰ 时间戳: %lu ms", millis());
+
+              // 发布TVOC数据
+              if (id(last_tvoc) == -999.0 || abs(tvoc_mgm3 - id(last_tvoc)) >= 0.001) {
+                ESP_LOGI("voc_uart", "✅ 发布TVOC: %.3f mg/m³", tvoc_mgm3);
+                id(voc_tvoc).publish_state(tvoc_mgm3);
+                id(last_tvoc) = tvoc_mgm3;
+              }
+
+              // 发布甲醛数据
+              if (id(last_hcho) == -999.0 || abs(ch2o_mgm3 - id(last_hcho)) >= 0.001) {
+                ESP_LOGI("voc_uart", "✅ 发布甲醛: %.3f mg/m³", ch2o_mgm3);
+                id(voc_hcho).publish_state(ch2o_mgm3);
+                id(last_hcho) = ch2o_mgm3;
+              }
+
+              // 发布CO₂数据
+              if (id(last_co2) == -999.0 || abs(co2_mgm3 - id(last_co2)) >= 0.001) {
+                ESP_LOGI("voc_uart", "✅ 发布CO₂: %.3f mg/m³", co2_mgm3);
+                id(voc_co2).publish_state(co2_mgm3);
+                id(last_co2) = co2_mgm3;
+              }
+
+              ESP_LOGI("voc_uart", "===============================");
+              ESP_LOGI("voc_uart", "✅ 数据读取和处理完成");
+            } else {
+              ESP_LOGW("voc_uart", "⚠️ 接收到数据但验证失败");
+            }
+          } else {
+            ESP_LOGW("voc_uart", "⏰ 超时，未接收到数据");
           }
 
   # VOC传感器不需要发送命令，它会自动发送数据
@@ -253,10 +285,6 @@ interval:
 text_sensor:
   # WiFi信息
   - platform: wifi_info
-    ip_address:
-      name: "IP Address"
-    ssid:
-      name: "Connected SSID"
     mac_address:
       name: "Mac Address"
 
@@ -275,9 +303,9 @@ switch:
 # 日志配置
 logger:
   baud_rate: 115200
-  level: INFO  # 显示传感器数据
+  level: WARN  # 显示传感器数据
   logs:
-    voc_uart: INFO    # 显示VOC传感器数据
+    voc_uart: WARN    # 显示VOC传感器数据
     uart_debug: WARN  # 减少UART调试信息
     uart: WARN        # 减少UART日志
     wifi: WARN        # 减少WiFi日志
