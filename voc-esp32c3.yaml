@@ -51,7 +51,7 @@ globals:
     initial_value: '-999.0'  # 初始值设为不可能的CO2浓度
 
 sensor:
-  # VOC-CO2-HCHO传感器数据 - 严格按照test_VOC-CO2-HCHO-Sensor.cpp定义
+  # VOC-CO2-HCHO传感器数据 
   - platform: template
     name: "TVOC"
     id: voc_tvoc
@@ -274,12 +274,6 @@ interval:
           }
 
   # VOC传感器不需要发送命令，它会自动发送数据
-
-# # 状态LED指示
-# light:
-#   - platform: status_led
-#     name: "Status LED"
-#     pin: GPIO13  # ESP32-C3开发板上的LED引脚
 
 # 文本传感器
 text_sensor:
