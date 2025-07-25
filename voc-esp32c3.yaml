@@ -33,9 +33,6 @@ uart:
   parity: NONE
   stop_bits: 1
   rx_buffer_size: 512  # 增加接收缓冲区大小
-  # debug:  # 关闭UART调试以减少日志输出
-  #   direction: RX
-  #   dummy_receiver: false
 
 # 全局变量存储UART数据缓冲区和上次数值
 globals:
@@ -53,23 +50,6 @@ globals:
     initial_value: '-999.0'  # 初始值设为不可能的湿度
 
 sensor:
-  # SHT30 UART传感器 - 温度
-  - platform: template
-    name: "SHT30 UART Temperature"
-    id: sht30_temp
-    unit_of_measurement: "°C"
-    device_class: temperature
-    state_class: measurement
-    accuracy_decimals: 1
-
-  # SHT30 UART传感器 - 湿度
-  - platform: template
-    name: "SHT30 UART Humidity"
-    id: sht30_hum
-    unit_of_measurement: "%"
-    device_class: humidity
-    state_class: measurement
-    accuracy_decimals: 1
 
   # WiFi信号强度传感器
   - platform: wifi_signal
@@ -88,7 +68,7 @@ sensor:
 
 # UART数据处理间隔
 interval:
-  - interval: 100ms  # 每100ms检查一次UART数据
+  - interval: 1000ms  # 每100ms检查一次UART数据
     then:
       - lambda: |-
           // 检查UART是否有可用数据
