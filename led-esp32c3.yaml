@@ -1,0 +1,335 @@
+esphome:
+  name: led-myesp32c3
+  friendly_name: "Fastled ESP32-C3"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+
+# 二进制传感器
+binary_sensor:
+  # 设备状态
+  - platform: status
+    name: "Status"
+
+# 开关控制
+switch:
+  # 重启开关
+  - platform: restart
+    name: "Restart"
+
+  # LED灯带开关
+  - platform: template
+    name: "LED Strip Power"
+    id: led_power
+    optimistic: true
+    turn_on_action:
+      - light.turn_on: led_strip
+    turn_off_action:
+      - light.turn_off: led_strip
+
+  # 自动检测LED数量
+  - platform: template
+    name: "Auto Detect LED Count"
+    id: auto_detect_leds
+    turn_on_action:
+      - lambda: |-
+          // 自动检测LED数量的逻辑
+          ESP_LOGI("led_detect", "开始自动检测LED数量...");
+
+          // 先关闭LED
+          auto call = id(led_strip).make_call();
+          call.set_state(false);
+          call.perform();
+
+          // 测试不同的LED数量 (从1到300)
+          int detected_count = 30; // 默认值
+
+          // 这里可以实现更复杂的检测逻辑
+          // 目前设置为用户手动输入的值
+          detected_count = (int)id(led_count).state;
+
+          ESP_LOGI("led_detect", "检测到LED数量: %d", detected_count);
+
+          // 更新LED数量
+          id(led_count).publish_state(detected_count);
+    turn_off_action:
+      - lambda: |-
+          ESP_LOGI("led_detect", "停止LED检测");
+
+# 按钮控制
+button:
+  - platform: template
+    name: "Start LED Scan"
+    id: start_led_scan
+    on_press:
+      - script.execute: led_scan_detect
+
+  - platform: template
+    name: "Confirm 10 LEDs"
+    on_press:
+      - script.execute:
+          id: confirm_led_count
+          count: 10
+
+  - platform: template
+    name: "Confirm 30 LEDs"
+    on_press:
+      - script.execute:
+          id: confirm_led_count
+          count: 30
+
+  - platform: template
+    name: "Confirm 60 LEDs"
+    on_press:
+      - script.execute:
+          id: confirm_led_count
+          count: 60
+
+  - platform: template
+    name: "Confirm 144 LEDs"
+    on_press:
+      - script.execute:
+          id: confirm_led_count
+          count: 144
+
+  - platform: template
+    name: "Show Current LED Count"
+    on_press:
+      - script.execute: show_current_leds
+
+# 日志配置
+logger:
+  baud_rate: 115200
+  level: INFO  # 显示传感器数据
+  logs:
+    voc_uart: INFO    # 显示VOC传感器数据
+    uart_debug: WARN  # 减少UART调试信息
+    uart: WARN        # 减少UART日志
+    wifi: WARN        # 减少WiFi日志
+    api: WARN         # 减少API日志
+    ota: WARN         # 减少OTA日志
+    web_server: WARN  # 减少Web服务器日志
+
+# OTA更新
+ota:
+  platform: esphome
+
+# API配置
+api:
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
+
+# WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # 启用回退热点（可选）
+  ap:
+    ssid: "ESP32-C3 Fallback Hotspot"
+    password: "12345678"
+
+captive_portal:
+
+# 脚本 - LED扫描检测
+script:
+  - id: led_scan_detect
+    mode: restart
+    then:
+      - lambda: |-
+          ESP_LOGI("led_scan", "开始LED扫描检测...");
+      # 先关闭所有LED
+      - light.turn_off: led_strip
+      - delay: 500ms
+      # 开始扫描 - 这个脚本会被手动停止
+      - repeat:
+          count: 300
+          then:
+            - lambda: |-
+                static int current_led = 0;
+                current_led++;
+                if(current_led > 300) current_led = 1;
+                ESP_LOGI("led_scan", "测试LED: %d", current_led);
+                id(led_count).publish_state(current_led);
+            # 关闭所有LED
+            - light.addressable_set:
+                id: led_strip
+                range_from: 0
+                range_to: 299
+                red: 0%
+                green: 0%
+                blue: 0%
+            # 点亮当前测试的LED为红色
+            - light.addressable_set:
+                id: led_strip
+                range_from: !lambda "return (int)id(led_count).state - 1;"
+                range_to: !lambda "return (int)id(led_count).state - 1;"
+                red: 100%
+                green: 0%
+                blue: 0%
+            - delay: 200ms
+
+  # 显示当前设置的LED数量
+  - id: show_current_leds
+    then:
+      - lambda: |-
+          int current_count = (int)id(led_count).state;
+          ESP_LOGI("led_show", "显示当前LED数量: %d", current_count);
+      # 先关闭所有LED
+      - light.addressable_set:
+          id: led_strip
+          range_from: 0
+          range_to: 299
+          red: 0%
+          green: 0%
+          blue: 0%
+      # 点亮前N个LED为蓝色
+      - light.addressable_set:
+          id: led_strip
+          range_from: 0
+          range_to: !lambda "return (int)id(led_count).state - 1;"
+          red: 0%
+          green: 0%
+          blue: 100%
+      - delay: 3s
+      # 关闭所有LED
+      - light.addressable_set:
+          id: led_strip
+          range_from: 0
+          range_to: 299
+          red: 0%
+          green: 0%
+          blue: 0%
+
+  # LED计数确认脚本
+  - id: confirm_led_count
+    parameters:
+      count: int
+    then:
+      - lambda: |-
+          ESP_LOGI("led_confirm", "确认LED数量: %d", count);
+          id(led_count).publish_state(count);
+      # 显示确认效果 - 前N个LED闪烁绿色3次
+      - repeat:
+          count: 3
+          then:
+            # 点亮前N个LED为绿色
+            - light.addressable_set:
+                id: led_strip
+                range_from: 0
+                range_to: !lambda "return count - 1;"
+                red: 0%
+                green: 100%
+                blue: 0%
+            - delay: 300ms
+            # 关闭所有LED
+            - light.addressable_set:
+                id: led_strip
+                range_from: 0
+                range_to: 299
+                red: 0%
+                green: 0%
+                blue: 0%
+            - delay: 300ms
+
+# 传感器
+sensor:
+  # WiFi信号强度
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+  # 运行时间
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# 文本传感器
+text_sensor:
+  # WiFi信息
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+    mac_address:
+      name: "Mac Address"
+
+# 数字输入 - 动态设置LED数量
+number:
+  - platform: template
+    name: "LED Count"
+    id: led_count
+    optimistic: true
+    min_value: 1
+    max_value: 300
+    initial_value: 30
+    step: 1
+    mode: box
+    on_value:
+      then:
+        - lambda: |-
+            // 更新LED数量设置（仅用于记录，实际LED数量由配置决定）
+            ESP_LOGI("led_count", "LED数量设置为: %d", (int)x);
+            // 关闭LED灯带以应用新设置
+            auto call = id(led_strip).make_call();
+            call.set_state(false);
+            call.perform();
+
+# WS2812 LED灯带配置
+light:
+  - platform: fastled_clockless
+    chipset: WS2812B
+    pin: GPIO18  # 可以根据你的接线修改引脚
+    num_leds: 300  # 最大LED数量 - 设置为支持的最大值
+    rgb_order: GRB
+    name: "WS2812 LED Strip"
+    id: led_strip
+    effects:
+      - addressable_rainbow:
+          name: Rainbow
+          speed: 10
+          width: 50
+      - addressable_color_wipe:
+          name: Color Wipe
+          colors:
+            - red: 100%
+              green: 100%
+              blue: 100%
+              num_leds: 1
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 1
+          add_led_interval: 100ms
+          reverse: false
+      - addressable_scan:
+          name: Scan
+          move_interval: 100ms
+          scan_width: 1
+      - addressable_twinkle:
+          name: Twinkle
+          twinkle_probability: 5%
+          progress_interval: 4ms
+      - addressable_random_twinkle:
+          name: Random Twinkle
+          twinkle_probability: 5%
+          progress_interval: 32ms
+      - addressable_fireworks:
+          name: Fireworks
+          update_interval: 32ms
+          spark_probability: 10%
+          use_random_color: false
+          fade_out_rate: 120
+      - addressable_flicker:
+          name: Flicker
+          update_interval: 16ms
+          intensity: 5%

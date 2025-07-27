@@ -9,12 +9,31 @@ esp32:
     type: arduino
 
 mqtt:
-  broker: 11ijEEhVAe.mqtts.acc.cmcconenet.cn   # 你的MQTT服务器IP
-  port: 1883              # 端口，默认1883
-  username: 11ijEEhVAe # 可选，MQTT用户名
-  password: your_password # 可选，MQTT密码
-  discovery: true         # 建议开启，便于Home Assistant自动发现
-  # propertyPostTopic = "$sys/" + String(ONENET_PRODUCT_ID) + "/" + String(ONENET_DEVICE_NAME) + "/thing/property/post";
+  broker: 11ijEEhVAe.mqtts.acc.cmcconenet.cn   # MQTT服务器地址
+  port: 1883              # MQTT端口
+  username: 11ijEEhVAe    # MQTT用户名
+  password: !secret mqtt_password  # 从secrets.yaml读取MQTT密码
+  discovery: true         # 启用Home Assistant自动发现
+  discovery_prefix: homeassistant  # HA发现前缀
+  topic_prefix: voc_esp32c3  # 设备主题前缀
+
+  # 设备上线/离线消息
+  birth_message:
+    topic: voc_esp32c3/status
+    payload: online
+    retain: true
+  will_message:
+    topic: voc_esp32c3/status
+    payload: offline
+    retain: true
+
+  # 自定义传感器数据发布
+  on_message:
+    - topic: voc_esp32c3/command
+      then:
+        - logger.log:
+            format: "收到MQTT命令: %s"
+            args: ['x.c_str()']
 
 # 从secrets.yaml文件中读取WiFi配置
 wifi:
@@ -59,7 +78,7 @@ globals:
     initial_value: '-999.0'  # 初始值设为不可能的CO2浓度
 
 sensor:
-  # VOC-CO2-HCHO传感器数据 
+  # VOC-CO2-HCHO传感器数据
   - platform: template
     name: "TVOC"
     id: voc_tvoc
@@ -67,6 +86,13 @@ sensor:
     accuracy_decimals: 3
     state_class: "measurement"
     icon: "mdi:chemical-weapon"
+    # MQTT发布配置
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: voc_esp32c3/sensors/tvoc
+            payload: !lambda 'return to_string(x);'
+            retain: true
 
   - platform: template
     name: "Formaldehyde (CH₂O)"
@@ -75,6 +101,13 @@ sensor:
     accuracy_decimals: 3
     state_class: "measurement"
     icon: "mdi:molecule"
+    # MQTT发布配置
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: voc_esp32c3/sensors/formaldehyde
+            payload: !lambda 'return to_string(x);'
+            retain: true
 
   - platform: template
     name: "CO2"
@@ -83,11 +116,25 @@ sensor:
     accuracy_decimals: 3
     state_class: "measurement"
     icon: "mdi:molecule-co2"
+    # MQTT发布配置
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: voc_esp32c3/sensors/co2
+            payload: !lambda 'return to_string(x);'
+            retain: true
 
   # ESP32-C3内部温度传感器
   - platform: internal_temperature
     name: "ESP32-C3 Internal Temperature"
     update_interval: 60s
+    # MQTT发布配置
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: voc_esp32c3/sensors/temperature
+            payload: !lambda 'return to_string(x);'
+            retain: true
 
 # VOC传感器数据处理间隔 - 严格按照test_VOC-CO2-HCHO-Sensor.cpp实现
 interval:
@@ -261,6 +308,19 @@ interval:
                 id(voc_co2).publish_state(co2_mgm3);
                 id(last_co2) = co2_mgm3;
               }
+
+              // 发送综合JSON数据到MQTT
+              std::string json_payload = "{";
+              json_payload += "\"tvoc\":" + to_string(tvoc_mgm3) + ",";
+              json_payload += "\"formaldehyde\":" + to_string(ch2o_mgm3) + ",";
+              json_payload += "\"co2\":" + to_string(co2_mgm3) + ",";
+              json_payload += "\"timestamp\":" + to_string(millis()) + ",";
+              json_payload += "\"unit\":\"mg/m3\"";
+              json_payload += "}";
+
+              // 发布到MQTT
+              id(mqtt_client).publish("voc_esp32c3/sensors/all", json_payload, 0, true);
+              ESP_LOGI("voc_uart", "📤 发送MQTT数据: %s", json_payload.c_str());
 
               ESP_LOGI("voc_uart", "===============================");
               ESP_LOGI("voc_uart", "✅ 数据读取和处理完成");

@@ -1,0 +1,55 @@
+esphome:
+  name: esp32s3_cam
+  platformio_options:
+    monitor_speed: 115200
+    board_build.arduino.partitions: default_16MB.csv
+    board_build.arduino.memory_type: qio_opi
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+  flash_size: 16MB
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# 可选：开启日志与 OTA
+logger:
+api:
+ota:
+  platform: esphome
+
+# 摄像头配置（ESP32S3_EYE 模块配置）
+esp32_camera:
+  name: "客厅摄像头"
+  external_clock:
+    pin: GPIO15           # XCLK_GPIO_NUM
+    frequency: 20MHz
+  i2c_pins:
+    sda: GPIO4            # SIOD_GPIO_NUM
+    scl: GPIO5            # SIOC_GPIO_NUM
+  data_pins: [GPIO11, GPIO9, GPIO8, GPIO10, GPIO12, GPIO18, GPIO17, GPIO16]  # Y2-Y9
+  vsync_pin: GPIO6        # VSYNC_GPIO_NUM
+  href_pin: GPIO7         # HREF_GPIO_NUM
+  pixel_clock_pin: GPIO13 # PCLK_GPIO_NUM
+  # power_down_pin: -1    # PWDN_GPIO_NUM (未使用)
+  # reset_pin: -1         # RESET_GPIO_NUM (未使用)
+  resolution: 640x480
+  jpeg_quality: 10
+
+# 可选：内置 HTTP 流媒体
+esp32_camera_web_server:
+  - port: 8080
+    mode: stream
+  - port: 8081
+    mode: snapshot
+
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
