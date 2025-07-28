@@ -38,6 +38,17 @@ esp32_camera:
   # reset_pin: -1         # RESET_GPIO_NUM (未使用)
   resolution: 640x480
   jpeg_quality: 10
+  # 图像调整参数 - 改善亮度
+  brightness: 1           # 亮度调整 (-2 到 2, 默认0)
+  contrast: 1             # 对比度调整 (-2 到 2, 默认0)
+  saturation: 0           # 饱和度调整 (-2 到 2, 默认0)
+  # 自动曝光和增益控制
+  aec_mode: auto          # 自动曝光控制
+  aec2: true              # 启用高级自动曝光
+  ae_level: 1             # 自动曝光级别 (-2 到 2, 默认0)
+  agc_mode: auto          # 自动增益控制
+  agc_gain_ceiling: 16x   # 增益上限 (2x, 4x, 8x, 16x, 32x, 64x, 128x)
+  wb_mode: auto           # 自动白平衡
 
 # 可选：内置 HTTP 流媒体
 esp32_camera_web_server:
