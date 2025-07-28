@@ -17,7 +17,11 @@ wifi:
 
 # 可选：开启日志与 OTA
 logger:
+
+# Home Assistant API - 必需用于集成
 api:
+
+# OTA 更新
 ota:
   platform: esphome
 
@@ -36,8 +40,9 @@ esp32_camera:
   pixel_clock_pin: GPIO13 # PCLK_GPIO_NUM
   # power_down_pin: -1    # PWDN_GPIO_NUM (未使用)
   # reset_pin: -1         # RESET_GPIO_NUM (未使用)
-  resolution: 640x480
-  jpeg_quality: 10
+  resolution: 1600x1200  # UXGA - 最高分辨率
+  jpeg_quality: 15        # 适合高分辨率的质量设置 (10=最高质量, 63=最低质量)
+  horizontal_mirror: true # 左右翻转图像(无效)
   # 图像调整参数 - 改善亮度
   brightness: 1           # 亮度调整 (-2 到 2, 默认0)
   contrast: 1             # 对比度调整 (-2 到 2, 默认0)
