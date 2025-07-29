@@ -1,0 +1,45 @@
+esphome:
+  name: bmp_aht_esp32c3
+  friendly_name: 温湿度大气压强传感器节点
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+# 启用日志
+logger:
+
+# 启用 Home Assistant API（可选）
+api:
+
+ota:
+  platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+i2c:
+  sda: 4
+  scl: 5
+  scan: true
+  id: bus_a
+
+sensor:
+  # AHT20 Temperature and Humidity Sensor (Fixed address 0x38)
+  - platform: aht10
+    temperature:
+      name: "AHT20 Temperature"
+    humidity:
+      name: "AHT20 Humidity"
+    update_interval: 30s
+
+  # BMP280 Pressure Sensor
+  - platform: bmp280_i2c
+    temperature:
+      name: "BMP280 Temperature"
+    pressure:
+      name: "BMP280 Pressure"
+    address: 0x77
+    i2c_id: bus_a
+    update_interval: 30s
