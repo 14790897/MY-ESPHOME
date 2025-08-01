@@ -76,6 +76,10 @@ globals:
     type: float
     restore_value: no
     initial_value: '-999.0'  # 初始值设为不可能的CO2浓度
+  - id: last_air_quality
+    type: std::string
+    restore_value: no
+    initial_value: '"未知"'  # 初始空气质量状态
 
 sensor:
   # VOC-CO2-HCHO传感器数据
@@ -309,11 +313,66 @@ interval:
                 id(last_co2) = co2_mgm3;
               }
 
-              // 发送综合JSON数据到MQTT
+              // 空气质量评估逻辑 (仅基于TVOC和甲醛)
+              std::string air_quality = "优秀";
+              int quality_score = 0;
+
+              // TVOC评估 (mg/m³)
+              if (tvoc_mgm3 <= 0.3) {
+                quality_score += 1; // 优秀
+              } else if (tvoc_mgm3 <= 0.6) {
+                quality_score += 2; // 良好
+              } else if (tvoc_mgm3 <= 1.0) {
+                quality_score += 3; // 中等
+              } else if (tvoc_mgm3 <= 3.0) {
+                quality_score += 4; // 较差
+              } else {
+                quality_score += 5; // 很差
+              }
+
+              // 甲醛评估 (mg/m³)
+              if (ch2o_mgm3 <= 0.08) {
+                quality_score += 1; // 优秀
+              } else if (ch2o_mgm3 <= 0.1) {
+                quality_score += 2; // 良好
+              } else if (ch2o_mgm3 <= 0.3) {
+                quality_score += 3; // 中等
+              } else if (ch2o_mgm3 <= 0.5) {
+                quality_score += 4; // 较差
+              } else {
+                quality_score += 5; // 很差
+              }
+
+              // 根据综合评分确定空气质量等级 (仅基于TVOC和甲醛，总分2-10)
+              if (quality_score <= 3) {
+                air_quality = "优秀";
+              } else if (quality_score <= 5) {
+                air_quality = "良好";
+              } else if (quality_score <= 7) {
+                air_quality = "中等";
+              } else if (quality_score <= 9) {
+                air_quality = "较差";
+              } else {
+                air_quality = "很差";
+              }
+
+              ESP_LOGI("voc_uart", "🌟 空气质量评估: %s (评分: %d)", air_quality.c_str(), quality_score);
+              ESP_LOGI("voc_uart", "   TVOC: %.3f mg/m³, 甲醛: %.3f mg/m³", tvoc_mgm3, ch2o_mgm3);
+
+              // 发布空气质量评估
+              if (id(last_air_quality) != air_quality) {
+                ESP_LOGI("voc_uart", "✅ 发布空气质量: %s", air_quality.c_str());
+                id(air_quality_status).publish_state(air_quality);
+                id(last_air_quality) = air_quality;
+              }
+
+              // 发送综合JSON数据到MQTT (包含空气质量评估)
               std::string json_payload = "{";
               json_payload += "\"tvoc\":" + to_string(tvoc_mgm3) + ",";
               json_payload += "\"formaldehyde\":" + to_string(ch2o_mgm3) + ",";
               json_payload += "\"co2\":" + to_string(co2_mgm3) + ",";
+              json_payload += "\"air_quality\":\"" + air_quality + "\",";
+              json_payload += "\"quality_score\":" + to_string(quality_score) + ",";
               json_payload += "\"timestamp\":" + to_string(millis()) + ",";
               json_payload += "\"unit\":\"mg/m3\"";
               json_payload += "}";
@@ -339,6 +398,19 @@ text_sensor:
   - platform: wifi_info
     mac_address:
       name: "Mac Address"
+
+  # 空气质量评估
+  - platform: template
+    name: "Air Quality Assessment"
+    id: air_quality_status
+    icon: "mdi:air-filter"
+    # MQTT发布配置
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: voc_esp32c3/sensors/air_quality
+            payload: !lambda 'return x;'
+            retain: true
 
 # 二进制传感器
 binary_sensor:
