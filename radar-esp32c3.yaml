@@ -79,7 +79,7 @@ globals:
 
 # Interval component to read UART data
 interval:
-  - interval: 50ms
+  - interval: 10000ms
     then:
       - lambda: |-
           if (!id(detection_enabled)) return;
@@ -191,7 +191,7 @@ sensor:
     unit_of_measurement: "mm"
     accuracy_decimals: 1
     state_class: "measurement"
-    update_interval: 100ms
+    update_interval: 10000ms
     lambda: |-
       return id(target_count) > 0 ? id(target1_x) : NAN;
 
@@ -201,7 +201,7 @@ sensor:
     unit_of_measurement: "mm"
     accuracy_decimals: 1
     state_class: "measurement"
-    update_interval: 100ms
+    update_interval: 10000ms
     lambda: |-
       return id(target_count) > 0 ? id(target1_y) : NAN;
 
@@ -211,7 +211,7 @@ sensor:
     unit_of_measurement: "cm/s"
     accuracy_decimals: 1
     state_class: "measurement"
-    update_interval: 100ms
+    update_interval: 10000ms
     lambda: |-
       return id(target_count) > 0 ? id(target1_speed) : NAN;
 
@@ -221,7 +221,7 @@ sensor:
     unit_of_measurement: "m"
     accuracy_decimals: 3
     state_class: "measurement"
-    update_interval: 100ms
+    update_interval: 10000ms
     lambda: |-
       return id(target_count) > 0 ? id(target1_distance) : NAN;
 
@@ -231,7 +231,7 @@ sensor:
     unit_of_measurement: "°"
     accuracy_decimals: 1
     state_class: "measurement"
-    update_interval: 100ms
+    update_interval: 10000ms
     lambda: |-
       return id(target_count) > 0 ? id(target1_angle) : NAN;
 
@@ -241,7 +241,7 @@ sensor:
     id: target_count_sensor
     accuracy_decimals: 0
     state_class: "measurement"
-    update_interval: 100ms
+    update_interval: 10000ms
     lambda: |-
       return id(target_count);
 
@@ -278,7 +278,7 @@ text_sensor:
   - platform: template
     name: "Radar Status"
     id: radar_status
-    update_interval: 5s
+    update_interval: 10000ms
     lambda: |-
       if (id(detection_enabled)) {
         int count = id(target_count);
