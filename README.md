@@ -1,4 +1,4 @@
-
+<!-- 
 ## ⚠️ 已知问题
 
 ### 传感器死机问题
@@ -27,7 +27,7 @@
 
 ## 配置文件
 - **主配置**: `voc-esp32c3.yaml`
-- **参考代码**: `test_VOC-CO2-HCHO-Sensor.cpp`
+- **参考代码**: `test_VOC-CO2-HCHO-Sensor.cpp` -->
 
 ## 常用命令
 ```bash
