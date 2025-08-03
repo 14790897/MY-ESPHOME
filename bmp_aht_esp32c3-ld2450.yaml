@@ -1,5 +1,5 @@
 esphome:
-  name: bmp-aht-esp32c3
+  name: bmp_aht_esp32c3
   friendly_name: 红外遥控, 温湿度大气压强传感器节点
 
 esp32:
@@ -26,12 +26,12 @@ remote_transmitter:
   carrier_duty_percent: 50%
   id: my_transmitter
 
-remote_receiver:
-  pin: 
-    number: GPIO1
-    inverted: true
-  dump: raw
-  id: my_receiver
+# remote_receiver:
+#   pin: 
+#     number: GPIO1
+#     inverted: true
+#   dump: raw
+#   id: my_receiver
 #   tolerance: 50%
 #   buffer_size: 10kb
 #   filter: 250us
@@ -63,6 +63,66 @@ sensor:
     address: 0x77
     i2c_id: bus_a
     update_interval: 60s
+    # Target 1 sensors
+  - platform: template
+    name: "Target 1 X Position"
+    id: target1_x_sensor
+    unit_of_measurement: "mm"
+    accuracy_decimals: 1
+    state_class: "measurement"
+    update_interval: 10000ms
+    lambda: |-
+      return id(target_count) > 0 ? id(target1_x) : NAN;
+
+  - platform: template
+    name: "Target 1 Y Position"
+    id: target1_y_sensor
+    unit_of_measurement: "mm"
+    accuracy_decimals: 1
+    state_class: "measurement"
+    update_interval: 10000ms
+    lambda: |-
+      return id(target_count) > 0 ? id(target1_y) : NAN;
+
+  - platform: template
+    name: "Target 1 Speed"
+    id: target1_speed_sensor
+    unit_of_measurement: "cm/s"
+    accuracy_decimals: 1
+    state_class: "measurement"
+    update_interval: 10000ms
+    lambda: |-
+      return id(target_count) > 0 ? id(target1_speed) : NAN;
+
+  - platform: template
+    name: "Target 1 Distance"
+    id: target1_distance_sensor
+    unit_of_measurement: "m"
+    accuracy_decimals: 3
+    state_class: "measurement"
+    update_interval: 10000ms
+    lambda: |-
+      return id(target_count) > 0 ? id(target1_distance) : NAN;
+
+  - platform: template
+    name: "Target 1 Angle"
+    id: target1_angle_sensor
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    state_class: "measurement"
+    update_interval: 10000ms
+    lambda: |-
+      return id(target_count) > 0 ? id(target1_angle) : NAN;
+
+  # System sensors
+  - platform: template
+    name: "Target Count"
+    id: target_count_sensor
+    accuracy_decimals: 0
+    state_class: "measurement"
+    update_interval: 10000ms
+    lambda: |-
+      return id(target_count);
 
 climate:
   - platform: gree
@@ -73,6 +133,17 @@ climate:
 
 
 switch:
+  - platform: template
+    name: "Enable Detection"
+    id: enable_detection_switch
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: |-
+          id(detection_enabled) = true;
+    turn_off_action:
+      - lambda: |-
+          id(detection_enabled) = false;
   - platform: template
     name: "AC Power"
     id: ac_power
@@ -168,3 +239,183 @@ button:
 
 
 
+# UART configuration for LD2450
+uart:
+  id: ld2450_uart
+  tx_pin: GPIO0
+  rx_pin: GPIO1
+  baud_rate: 256000
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+
+# Global variables for LD2450 data
+globals:
+  - id: detection_enabled
+    type: bool
+    restore_value: true
+    initial_value: 'true'
+  - id: target_count
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: target1_x
+    type: float
+    restore_value: false
+    initial_value: '0.0'
+  - id: target1_y
+    type: float
+    restore_value: false
+    initial_value: '0.0'
+  - id: target1_speed
+    type: float
+    restore_value: false
+    initial_value: '0.0'
+  - id: target1_distance
+    type: float
+    restore_value: false
+    initial_value: '0.0'
+  - id: target1_angle
+    type: float
+    restore_value: false
+    initial_value: '0.0'
+
+# Interval component to read UART data
+interval:
+  - interval: 10000ms
+    then:
+      - lambda: |-
+          if (!id(detection_enabled)) return;
+
+          // Check if data is available
+          if (id(ld2450_uart).available()) {
+            ESP_LOGD("LD2450", "Data available");
+
+            // Read available bytes
+            std::vector<uint8_t> data;
+            uint8_t buffer[1];
+            while (id(ld2450_uart).available()) {
+              if (id(ld2450_uart).read_array(buffer, 1) > 0) {
+                data.push_back(buffer[0]);
+              }
+              if (data.size() > 100) break; // Prevent overflow
+            }
+
+            if (data.size() < 30) return; // Need at least 30 bytes for complete frame
+
+            // Look for frame header AA FF 03 00
+            int frame_start = -1;
+            for (int i = 0; i <= (int)data.size() - 30; i++) {
+              if (data[i] == 0xAA && data[i+1] == 0xFF &&
+                  data[i+2] == 0x03 && data[i+3] == 0x00) {
+                frame_start = i;
+                break;
+              }
+            }
+
+            if (frame_start == -1 || frame_start + 30 > data.size()) return;
+
+            // Parse first target (16 bytes starting at offset 4)
+            int target_offset = frame_start + 4;
+
+            // Check if target data is not all zeros (16 bytes)
+            bool has_target = false;
+            for (int i = 0; i < 16; i++) {
+              if (data[target_offset + i] != 0) {
+                has_target = true;
+                break;
+              }
+            }
+
+            if (has_target) {
+              // Parse X coordinate (bytes 0-1, little endian, signed, with sign bit)
+              uint8_t x_low = data[target_offset];
+              uint8_t x_high = data[target_offset + 1];
+              int x_raw = x_low + x_high * 256;
+              float x;
+              if (x_high >= 128) {
+                x = (float)(x_raw - 32768);
+              } else {
+                x = (float)(-x_raw);
+              }
+
+              // Parse Y coordinate (bytes 2-3, little endian, signed, with sign bit)
+              uint8_t y_low = data[target_offset + 2];
+              uint8_t y_high = data[target_offset + 3];
+              int y_raw = y_low + y_high * 256;
+              float y;
+              if (y_high >= 128) {
+                y = (float)(y_raw - 32768);
+              } else {
+                y = (float)(-y_raw);
+              }
+
+              // Parse speed (bytes 4-5, little endian, signed, with sign bit)
+              uint8_t speed_low = data[target_offset + 4];
+              uint8_t speed_high = data[target_offset + 5];
+              int speed_raw = speed_low + speed_high * 256;
+              float speed;
+              if (speed_high >= 128) {
+                speed = (float)(speed_raw & 0x7FFF); // 保留低15位
+              } else {
+                speed = (float)(-speed_raw);
+              }
+
+              // Parse resolution (bytes 6-7, little endian, unsigned)
+              uint8_t res_low = data[target_offset + 6];
+              uint8_t res_high = data[target_offset + 7];
+              int resolution = res_low + res_high * 256;
+
+              // Calculate distance and angle
+              float distance = sqrt(x*x + y*y) / 1000.0; // mm to m
+              float angle = -(90.0 - atan2(y, x) * 180.0 / 3.1415926);
+
+              // Update global variables
+              id(target_count) = 1;
+              id(target1_x) = x;
+              id(target1_y) = y;
+              id(target1_speed) = speed;
+              id(target1_distance) = distance;
+              id(target1_angle) = angle;
+
+              ESP_LOGD("LD2450", "Target: X=%.1f Y=%.1f Speed=%.1f Res=%d Dist=%.3f Angle=%.1f",
+                       x, y, speed, resolution, distance, angle);
+            } else {
+              id(target_count) = 0;
+            }
+          }
+
+
+
+# Binary sensors
+binary_sensor:
+  - platform: template
+    name: "Detection Active"
+    id: detection_active_sensor
+    lambda: |-
+      return id(detection_enabled);
+
+  - platform: template
+    name: "Target 1 Detected"
+    id: target1_detected_sensor
+    lambda: |-
+      return id(target_count) > 0;
+
+
+# Text sensors for additional information
+text_sensor:
+  - platform: template
+    name: "Radar Status"
+    id: radar_status
+    update_interval: 10000ms
+    lambda: |-
+      if (id(detection_enabled)) {
+        int count = id(target_count);
+        if (count > 0) {
+          return {"Detecting " + to_string(count) + " target(s)"};
+        } else {
+          return {"Active - No targets"};
+        }
+      } else {
+        return {"Detection disabled"};
+      }
