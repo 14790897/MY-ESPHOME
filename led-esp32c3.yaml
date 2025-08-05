@@ -1,5 +1,5 @@
 esphome:
-  name: led-myesp32c3
+  name: led-esp32c3
   friendly_name: "Fastled ESP32-C3"
 
 esp32:
@@ -73,27 +73,6 @@ button:
       - script.execute:
           id: confirm_led_count
           count: 10
-
-  - platform: template
-    name: "Confirm 30 LEDs"
-    on_press:
-      - script.execute:
-          id: confirm_led_count
-          count: 30
-
-  - platform: template
-    name: "Confirm 60 LEDs"
-    on_press:
-      - script.execute:
-          id: confirm_led_count
-          count: 60
-
-  - platform: template
-    name: "Confirm 144 LEDs"
-    on_press:
-      - script.execute:
-          id: confirm_led_count
-          count: 144
 
   - platform: template
     name: "Show Current LED Count"
@@ -289,7 +268,7 @@ light:
   - platform: fastled_clockless
     chipset: WS2812B
     pin: GPIO18  # 可以根据你的接线修改引脚
-    num_leds: 300  # 最大LED数量 - 设置为支持的最大值
+    num_leds: 90  # 最大LED数量 - 设置为支持的最大值
     rgb_order: GRB
     name: "WS2812 LED Strip"
     id: led_strip
@@ -333,3 +312,148 @@ light:
           name: Flicker
           update_interval: 16ms
           intensity: 5%
+      # 新增动画效果
+      - addressable_rainbow:
+          name: Fast Rainbow
+          speed: 50
+          width: 30
+      - addressable_rainbow:
+          name: Slow Rainbow
+          speed: 2
+          width: 100
+      - addressable_color_wipe:
+          name: Red Wipe
+          colors:
+            - red: 100%
+              green: 0%
+              blue: 0%
+              num_leds: 1
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 1
+          add_led_interval: 50ms
+          reverse: false
+      - addressable_color_wipe:
+          name: Blue Wipe
+          colors:
+            - red: 0%
+              green: 0%
+              blue: 100%
+              num_leds: 1
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 1
+          add_led_interval: 80ms
+          reverse: true
+      - addressable_color_wipe:
+          name: RGB Cycle
+          colors:
+            - red: 100%
+              green: 0%
+              blue: 0%
+              num_leds: 3
+            - red: 0%
+              green: 100%
+              blue: 0%
+              num_leds: 3
+            - red: 0%
+              green: 0%
+              blue: 100%
+              num_leds: 3
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 1
+          add_led_interval: 60ms
+          reverse: false
+      - addressable_scan:
+          name: Fast Scan
+          move_interval: 50ms
+          scan_width: 3
+      - addressable_scan:
+          name: Wide Scan
+          move_interval: 150ms
+          scan_width: 10
+      - addressable_twinkle:
+          name: Bright Twinkle
+          twinkle_probability: 10%
+          progress_interval: 2ms
+      - addressable_random_twinkle:
+          name: Slow Twinkle
+          twinkle_probability: 2%
+          progress_interval: 50ms
+      - addressable_fireworks:
+          name: Colorful Fireworks
+          update_interval: 20ms
+          spark_probability: 15%
+          use_random_color: true
+          fade_out_rate: 100
+      - addressable_fireworks:
+          name: Slow Fireworks
+          update_interval: 60ms
+          spark_probability: 5%
+          use_random_color: false
+          fade_out_rate: 150
+      - addressable_flicker:
+          name: Strong Flicker
+          update_interval: 10ms
+          intensity: 15%
+      - addressable_flicker:
+          name: Candle Flicker
+          update_interval: 25ms
+          intensity: 8%
+      # 脉冲效果
+      - pulse:
+          name: Red Pulse
+          transition_length: 1s
+          update_interval: 1s
+          min_brightness: 0%
+          max_brightness: 100%
+      - pulse:
+          name: Fast Pulse
+          transition_length: 0.3s
+          update_interval: 0.3s
+          min_brightness: 20%
+          max_brightness: 100%
+      # 闪烁效果
+      - strobe:
+          name: White Strobe
+          colors:
+            - state: true
+              brightness: 100%
+              red: 100%
+              green: 100%
+              blue: 100%
+              duration: 100ms
+            - state: false
+              duration: 100ms
+      - strobe:
+          name: RGB Strobe
+          colors:
+            - state: true
+              brightness: 100%
+              red: 100%
+              green: 0%
+              blue: 0%
+              duration: 200ms
+            - state: true
+              brightness: 100%
+              red: 0%
+              green: 100%
+              blue: 0%
+              duration: 200ms
+            - state: true
+              brightness: 100%
+              red: 0%
+              green: 0%
+              blue: 100%
+              duration: 200ms
+            - state: false
+              duration: 300ms
+      # 随机闪烁
+      - random:
+          name: Random Colors
+          transition_length: 2s
+          update_interval: 3s
