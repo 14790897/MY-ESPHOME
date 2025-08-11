@@ -1,0 +1,186 @@
+esphome:
+  name: door-opener-esp32c3
+  friendly_name: "门锁控制器"
+  platformio_options:
+    monitor_speed: 115200
+    
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+
+http_request:
+  useragent: esphome/device
+  timeout: 10s
+  verify_ssl: false
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # 低功耗WiFi设置
+  power_save_mode: LIGHT  # 轻度省电模式
+  # 快速连接，减少唤醒时间
+  fast_connect: true
+
+# Home Assistant API - 必需用于集成
+api:
+
+# OTA 更新
+ota:
+  platform: esphome
+
+# 同步 Home Assistant 时间
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      # 每天 00:00 进入夜间长睡眠
+      - seconds: 0
+        minutes: 0
+        hours: 0
+        then:
+          - logger.log: "进入夜间深度睡眠"
+          - deep_sleep.enter:
+              id: deep_sleep_control
+              sleep_duration: 8h
+
+# 深度睡眠配置：开门设备待机模式，每次运行 20 秒，睡眠 3 分钟
+deep_sleep:
+  id: deep_sleep_control
+  # run_duration: 20s       # 每次运行 20 秒，足够完成开门操作
+  # sleep_duration: 3min    # 然后睡 3 分钟，快速响应开门需求
+
+# 启动时日志 - 降低日志级别以节省功耗
+logger:
+  level: WARN  # 只记录警告和错误，减少串口输出
+  logs:
+    deep_sleep: WARN
+
+# 开门舵机控制配置
+servo:
+  - id: door_servo
+    pin: GPIO2            # ESP32C3 适用的 PWM 引脚
+    min_pulse_width: 500us  # 最小脉宽
+    max_pulse_width: 2500us # 最大脉宽
+    idle_pulse_width: 0us   # 空闲时关闭PWM信号，节省功耗
+    auto_detach_time: 2s    # 2秒后自动断开，确保开门动作完成
+
+# 开门控制
+number:
+  - platform: template
+    name: "门锁角度"
+    id: door_angle
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 0  # 默认关门位置
+    optimistic: true
+    set_action:
+      then:
+        - servo.write:
+            id: door_servo
+            level: !lambda 'return x / 180.0;'
+        # 2秒后进入睡眠，确保开门动作完成
+        - delay: 2s
+        - deep_sleep.enter: deep_sleep_control
+
+# 开门预设操作
+button:
+  - platform: template
+    name: "🚪 开门"
+    icon: "mdi:door-open"
+    on_press:
+      then:
+        - logger.log: "执行开门操作"
+        - servo.write:
+            id: door_servo
+            level: 1.0  # 180度，完全开门
+        - number.set:
+            id: door_angle
+            value: 180
+        # 开门后等待3秒，然后自动关门
+        - delay: 3s
+        - logger.log: "自动关门"
+        - servo.write:
+            id: door_servo
+            level: 0.0  # 0度，关门
+        - number.set:
+            id: door_angle
+            value: 0
+        - delay: 2s
+        - deep_sleep.enter: deep_sleep_control
+        
+  - platform: template
+    name: "🔒 关门"
+    icon: "mdi:door-closed-lock"
+    on_press:
+      then:
+        - logger.log: "执行关门操作"
+        - servo.write:
+            id: door_servo
+            level: 0.0  # 0度，关门位置
+        - number.set:
+            id: door_angle
+            value: 0
+        - delay: 2s
+        - deep_sleep.enter: deep_sleep_control
+        
+  - platform: template
+    name: "🔓 解锁位置"
+    icon: "mdi:lock-open"
+    on_press:
+      then:
+        - logger.log: "移动到解锁位置"
+        - servo.write:
+            id: door_servo
+            level: 0.5  # 90度，中间解锁位置
+        - number.set:
+            id: door_angle
+            value: 90
+        - delay: 2s
+        - deep_sleep.enter: deep_sleep_control
+
+# 设备状态传感器
+text_sensor:
+  - platform: template
+    name: "门锁设备状态"
+    id: device_status
+    update_interval: 60s  # 增加更新间隔，节省功耗
+    lambda: |-
+      auto time = id(ha_time).now();
+      if (!time.is_valid()) return {"Time not synced"};
+
+      int hour = time.hour;
+      if (hour >= 0 && hour < 8) {
+        return {"Night sleep mode"};
+      } else {
+        return {"Ready for door control"};
+      }
+
+
+# 电源和门锁状态传感器
+sensor:
+  - platform: template
+    name: "运行时间"
+    id: uptime_sensor
+    unit_of_measurement: "s"
+    update_interval: 30s
+    lambda: 'return millis() / 1000.0;'
+    
+  - platform: template
+    name: "门锁角度反馈"
+    id: door_position_feedback
+    unit_of_measurement: "°"
+    update_interval: 5s
+    lambda: 'return id(door_angle).state;'
+
+
+# Web服务器 - 轻量级配置
+web_server:
+  port: 80
+  # 移除身份验证以减少处理开销
+  # auth:
+  #   username: admin
+  #   password: !secret wifi_password
+
+
