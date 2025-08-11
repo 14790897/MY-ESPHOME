@@ -51,4 +51,5 @@ esphome run cam-esp32s3.yml --device OTA
 esphome run bmp_aht_esp32c3.yaml --device OTA
 esphome run radar-esp32c3.yaml --device OTA
 esphome run led-esp32c3.yaml --device COM33
+esphome run servo-esp32c3.yaml --device OTA
 那个注意一下啊，esp32c3的12,13是它的led的，所以你在这里输入高电频的话，那个led会闪烁

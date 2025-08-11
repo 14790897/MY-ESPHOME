@@ -1,40 +1,29 @@
 esphome:
   name: door-opener-esp32c3
   friendly_name: "门锁控制器"
-  platformio_options:
-    monitor_speed: 115200
     
 esp32:
   board: airm2m_core_esp32c3
   framework:
     type: arduino
 
-
-http_request:
-  useragent: esphome/device
-  timeout: 10s
-  verify_ssl: false
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   # 低功耗WiFi设置
-  power_save_mode: LIGHT  # 轻度省电模式
-  # 快速连接，减少唤醒时间
-  fast_connect: true
+  # power_save_mode: NONE  # 关闭省电模式，提高连接稳定性
+  # # 快速连接，减少唤醒时间
+  # fast_connect: false
 
-# Home Assistant API - 必需用于集成
 api:
 
-# OTA 更新
 ota:
   platform: esphome
 
-# 同步 Home Assistant 时间
 time:
   - platform: homeassistant
     id: ha_time
     on_time:
-      # 每天 00:00 进入夜间长睡眠
       - seconds: 0
         minutes: 0
         hours: 0
@@ -44,106 +33,214 @@ time:
               id: deep_sleep_control
               sleep_duration: 8h
 
-# 深度睡眠配置：开门设备待机模式，每次运行 20 秒，睡眠 3 分钟
 deep_sleep:
   id: deep_sleep_control
-  # run_duration: 20s       # 每次运行 20 秒，足够完成开门操作
-  # sleep_duration: 3min    # 然后睡 3 分钟，快速响应开门需求
 
-# 启动时日志 - 降低日志级别以节省功耗
+
 logger:
-  level: WARN  # 只记录警告和错误，减少串口输出
+  level: DEBUG  # 提高到DEBUG级别，便于诊断问题
   logs:
-    deep_sleep: WARN
+    wifi: DEBUG
+    api: DEBUG
+    deep_sleep: INFO
+
+# PWM输出配置
+output:
+  - platform: ledc
+    id: door_servo_pwm
+    pin: GPIO2            
+    frequency: 100Hz
 
 # 开门舵机控制配置
 servo:
   - id: door_servo
-    pin: GPIO2            # ESP32C3 适用的 PWM 引脚
-    min_pulse_width: 500us  # 最小脉宽
-    max_pulse_width: 2500us # 最大脉宽
-    idle_pulse_width: 0us   # 空闲时关闭PWM信号，节省功耗
+    output: door_servo_pwm
     auto_detach_time: 2s    # 2秒后自动断开，确保开门动作完成
+    min_level: 0%       
+    max_level: 25%      
 
 # 开门控制
 number:
   - platform: template
-    name: "门锁角度"
+    name: "mensuo_jiaodu"
     id: door_angle
     min_value: 0
     max_value: 180
     step: 1
-    initial_value: 0  # 默认关门位置
+    initial_value: 180  # 默认关门位置（180度）
     optimistic: true
     set_action:
       then:
         - servo.write:
             id: door_servo
             level: !lambda 'return x / 180.0;'
-        # 2秒后进入睡眠，确保开门动作完成
-        - delay: 2s
-        - deep_sleep.enter: deep_sleep_control
+
+# 自由角度设置器
+  - platform: template
+    name: "ziyou_jiaodu_shezhi"
+    id: free_angle_control
+    min_value: 0
+    max_value: 180
+    step: 5  # 5度步进，更精确控制
+    initial_value: 90  # 默认中间位置
+    optimistic: true
+    icon: "mdi:rotate-orbit"
+    set_action:
+      then:
+        - logger.log: "设置自由角度"
+        - servo.write:
+            id: door_servo
+            level: !lambda 'return x / 180.0;'
+        - number.set:
+            id: door_angle
+            value: !lambda 'return x;'
 
 # 开门预设操作
 button:
   - platform: template
-    name: "🚪 开门"
+    name: "kaimen_caozuo"
+    id: door_open_btn
     icon: "mdi:door-open"
     on_press:
       then:
-        - logger.log: "执行开门操作"
+        - logger.log: "执行开门操作 - 设置到0度"
         - servo.write:
             id: door_servo
-            level: 1.0  # 180度，完全开门
+            level: 0.0  # 0度，完全开门
+        - number.set:
+            id: door_angle
+            value: 0
+        # 开门后等待3秒，然后自动关门
+        - delay: 3s
+        - logger.log: "自动关门 - 设置到180度"
+        - servo.write:
+            id: door_servo
+            level: 1.0  # 180度，关门位置
         - number.set:
             id: door_angle
             value: 180
-        # 开门后等待3秒，然后自动关门
-        - delay: 3s
-        - logger.log: "自动关门"
-        - servo.write:
-            id: door_servo
-            level: 0.0  # 0度，关门
-        - number.set:
-            id: door_angle
-            value: 0
         - delay: 2s
-        - deep_sleep.enter: deep_sleep_control
         
   - platform: template
-    name: "🔒 关门"
+    name: "guanmen_caozuo"
+    id: door_close_btn
     icon: "mdi:door-closed-lock"
     on_press:
       then:
-        - logger.log: "执行关门操作"
+        - logger.log: "执行关门操作 - 设置到180度"
         - servo.write:
             id: door_servo
-            level: 0.0  # 0度，关门位置
+            level: 1.0  # 180度，关门位置
+        - number.set:
+            id: door_angle
+            value: 180
+        - delay: 2s
+        
+  - platform: template
+    name: "jiesuo_weizhi"
+    id: door_unlock_btn
+    icon: "mdi:lock-open"
+    on_press:
+      then:
+        - logger.log: "移动到解锁位置 - 设置到0度"
+        - servo.write:
+            id: door_servo
+            level: 0.0  
         - number.set:
             id: door_angle
             value: 0
         - delay: 2s
-        - deep_sleep.enter: deep_sleep_control
-        
+
+# 添加测试按钮用于调试舵机范围
   - platform: template
-    name: "🔓 解锁位置"
-    icon: "mdi:lock-open"
+    name: "test_90_degree"
+    id: test_90_btn
     on_press:
       then:
-        - logger.log: "移动到解锁位置"
+        - logger.log: "测试90度位置"
         - servo.write:
             id: door_servo
-            level: 0.5  # 90度，中间解锁位置
+            level: 0.5  # 90度，中间位置
         - number.set:
             id: door_angle
             value: 90
-        - delay: 2s
-        - deep_sleep.enter: deep_sleep_control
+        - number.set:
+            id: free_angle_control
+            value: 90
+
+# 精确角度控制按钮
+  - platform: template
+    name: "jiaodu_30"
+    id: angle_30_btn
+    icon: "mdi:rotate-left"
+    on_press:
+      then:
+        - logger.log: "设置30度"
+        - servo.write:
+            id: door_servo
+            level: !lambda 'return 30.0 / 180.0;'
+        - number.set:
+            id: door_angle
+            value: 30
+        - number.set:
+            id: free_angle_control
+            value: 30
+            
+  - platform: template
+    name: "jiaodu_60"
+    id: angle_60_btn
+    icon: "mdi:rotate-left"
+    on_press:
+      then:
+        - logger.log: "设置60度"
+        - servo.write:
+            id: door_servo
+            level: !lambda 'return 60.0 / 180.0;'
+        - number.set:
+            id: door_angle
+            value: 60
+        - number.set:
+            id: free_angle_control
+            value: 60
+            
+  - platform: template
+    name: "jiaodu_120"
+    id: angle_120_btn
+    icon: "mdi:rotate-right"
+    on_press:
+      then:
+        - logger.log: "设置120度"
+        - servo.write:
+            id: door_servo
+            level: !lambda 'return 120.0 / 180.0;'
+        - number.set:
+            id: door_angle
+            value: 120
+        - number.set:
+            id: free_angle_control
+            value: 120
+            
+  - platform: template
+    name: "jiaodu_150"
+    id: angle_150_btn
+    icon: "mdi:rotate-right"
+    on_press:
+      then:
+        - logger.log: "设置150度"
+        - servo.write:
+            id: door_servo
+            level: !lambda 'return 150.0 / 180.0;'
+        - number.set:
+            id: door_angle
+            value: 150
+        - number.set:
+            id: free_angle_control
+            value: 150
 
 # 设备状态传感器
 text_sensor:
   - platform: template
-    name: "门锁设备状态"
+    name: "mensuo_shebei_zhuangtai"
     id: device_status
     update_interval: 60s  # 增加更新间隔，节省功耗
     lambda: |-
@@ -161,14 +258,14 @@ text_sensor:
 # 电源和门锁状态传感器
 sensor:
   - platform: template
-    name: "运行时间"
+    name: "yunxing_shijian"
     id: uptime_sensor
     unit_of_measurement: "s"
     update_interval: 30s
     lambda: 'return millis() / 1000.0;'
     
   - platform: template
-    name: "门锁角度反馈"
+    name: "mensuo_jiaodu_fankui"
     id: door_position_feedback
     unit_of_measurement: "°"
     update_interval: 5s
@@ -178,9 +275,6 @@ sensor:
 # Web服务器 - 轻量级配置
 web_server:
   port: 80
-  # 移除身份验证以减少处理开销
-  # auth:
-  #   username: admin
-  #   password: !secret wifi_password
+
 
 
