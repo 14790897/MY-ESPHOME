@@ -64,12 +64,12 @@ sensor:
     i2c_id: bus_a
     update_interval: 60s
 
-climate:
-  - platform: gree
-    name: Gree Air Conditioner
-    model: yaa
-    transmitter_id: my_transmitter
-    sensor: room_temperature
+# climate:
+#   - platform: gree
+#     name: Gree Air Conditioner
+#     model: yaa
+#     transmitter_id: my_transmitter
+#     sensor: room_temperature
 
 
 switch:
