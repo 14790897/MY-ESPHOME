@@ -52,7 +52,7 @@ sensor:
       id: room_temperature
     humidity:
       name: "AHT20 Humidity"
-    update_interval: 60s
+    update_interval: 300s
 
   # BMP280 Pressure Sensor
   - platform: bmp280_i2c
@@ -62,7 +62,7 @@ sensor:
       name: "BMP280 Pressure"
     address: 0x77
     i2c_id: bus_a
-    update_interval: 60s
+    update_interval: 300s
 
 # climate:
 #   - platform: gree

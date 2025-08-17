@@ -10,9 +10,9 @@ esp32:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  # 低功耗WiFi设置
-  # power_save_mode: NONE  # 关闭省电模式，提高连接稳定性
-  # # 快速连接，减少唤醒时间
+  # Low power WiFi settings
+  # power_save_mode: NONE  # Disable power saving mode for improved connection stability
+  # # Fast connect to reduce wake-up time
   # fast_connect: false
 
 api:
@@ -28,7 +28,7 @@ time:
         minutes: 0
         hours: 22
         then:
-          - logger.log: "进入夜间深度睡眠"
+          - logger.log: "Entering night deep sleep"
           - deep_sleep.enter:
               id: deep_sleep_control
               sleep_duration: 10h
@@ -38,36 +38,36 @@ deep_sleep:
 
 
 logger:
-  level: DEBUG  # 提高到DEBUG级别，便于诊断问题
+  level: DEBUG  # Increased to DEBUG level for easier troubleshooting
   logs:
     wifi: DEBUG
     api: DEBUG
     deep_sleep: INFO
 
-# PWM输出配置
+# PWM output configuration
 output:
   - platform: ledc
     id: door_servo_pwm
     pin: GPIO2            
     frequency: 100Hz
 
-# 开门舵机控制配置
+# Door servo control configuration
 servo:
   - id: door_servo
     output: door_servo_pwm
-    auto_detach_time: 2s    # 2秒后自动断开，确保开门动作完成
+    auto_detach_time: 2s    # Auto disconnect after 2s to ensure door operation completion
     min_level: 0%       
     max_level: 25%      
 
-# 开门控制
+# Door control
 number:
   - platform: template
-    name: "mensuo_jiaodu"
+    name: "door_angle"
     id: door_angle
     min_value: 0
     max_value: 180
     step: 1
-    initial_value: 180  # 默认关门位置（180度）
+    initial_value: 180  # Default closed position (180 degrees)
     optimistic: true
     set_action:
       then:
@@ -78,19 +78,19 @@ number:
         - component.update: uptime_sensor
         - component.update: door_position_feedback
 
-# 自由角度设置器
+# Free angle setter
   - platform: template
-    name: "ziyou_jiaodu_shezhi"
+    name: "free_angle_control"
     id: free_angle_control
     min_value: 0
     max_value: 180
-    step: 5  # 5度步进，更精确控制
-    initial_value: 90  # 默认中间位置
+    step: 5  # 5 degree steps for precise control
+    initial_value: 90  # Default middle position
     optimistic: true
     icon: "mdi:rotate-orbit"
     set_action:
       then:
-        - logger.log: "设置自由角度"
+        - logger.log: "Setting free angle"
         - servo.write:
             id: door_servo
             level: !lambda 'return x / 180.0;'
@@ -101,101 +101,101 @@ number:
         - component.update: uptime_sensor
         - component.update: door_position_feedback
 
-# 开门预设操作
+# Door preset operations
 button:
   - platform: template
-    name: "kaimen_caozuo"
+    name: "door_open"
     id: door_open_btn
     icon: "mdi:door-open"
     on_press:
       then:
-        - logger.log: "执行开门操作 - 设置到0度"
+        - logger.log: "Executing door open operation - Set to 0 degrees"
         - servo.write:
             id: door_servo
-            level: 0.0  # 0度，完全开门
+            level: 0.0  # 0 degrees, fully open
         - number.set:
             id: door_angle
             value: 0
-        # 手动触发sensor更新
+        # Manually trigger sensor update
         - component.update: uptime_sensor
         - component.update: door_position_feedback
-        # 开门后等待3秒，然后自动关门
+        # Wait 3 seconds after opening, then auto close
         - delay: 3s
-        - logger.log: "自动关门 - 设置到180度"
+        - logger.log: "Auto close - Set to 180 degrees"
         - servo.write:
             id: door_servo
-            level: 1.0  # 180度，关门位置
+            level: 1.0  # 180 degrees, closed position
         - number.set:
             id: door_angle
             value: 180
-        # 关门后再次更新sensor
+        # Update sensor again after closing
         - component.update: uptime_sensor
         - component.update: door_position_feedback
         - delay: 2s
         
   - platform: template
-    name: "guanmen_caozuo"
+    name: "door_close"
     id: door_close_btn
     icon: "mdi:door-closed-lock"
     on_press:
       then:
-        - logger.log: "执行关门操作 - 设置到180度"
+        - logger.log: "Executing door close operation - Set to 180 degrees"
         - servo.write:
             id: door_servo
-            level: 1.0  # 180度，关门位置
+            level: 1.0  # 180 degrees, closed position
         - number.set:
             id: door_angle
             value: 180
-        # 手动触发sensor更新
+        # Manually trigger sensor update
         - component.update: uptime_sensor
         - component.update: door_position_feedback
         - delay: 2s
         
   - platform: template
-    name: "jiesuo_weizhi"
+    name: "unlock_position"
     id: door_unlock_btn
     icon: "mdi:lock-open"
     on_press:
       then:
-        - logger.log: "移动到解锁位置 - 设置到0度"
+        - logger.log: "Move to unlock position - Set to 0 degrees"
         - servo.write:
             id: door_servo
             level: 0.0  
         - number.set:
             id: door_angle
             value: 0
-        # 手动触发sensor更新
+        # Manually trigger sensor update
         - component.update: uptime_sensor
         - component.update: door_position_feedback
         - delay: 2s
 
-# 添加测试按钮用于调试舵机范围
+# Add test button for debugging servo range
   - platform: template
     name: "test_90_degree"
     id: test_90_btn
     on_press:
       then:
-        - logger.log: "测试90度位置"
+        - logger.log: "Testing 90 degree position"
         - servo.write:
             id: door_servo
-            level: 0.5  # 90度，中间位置
+            level: 0.5  # 90 degrees, middle position
         - number.set:
             id: door_angle
             value: 90
         - number.set:
             id: free_angle_control
             value: 90
-        # 手动触发sensor更新
+        # Manually trigger sensor update
         - component.update: uptime_sensor
         - component.update: door_position_feedback
 
 
-# # 设备状态传感器
+# # Device status sensor
 # text_sensor:
 #   - platform: template
-#     name: "mensuo_shebei_zhuangtai"
+#     name: "device_status"
 #     id: device_status
-#     update_interval: 60s  # 增加更新间隔，节省功耗
+#     update_interval: 60s  # Increased update interval to save power
 #     lambda: |-
 #       auto time = id(ha_time).now();
 #       if (!time.is_valid()) return {"Time not synced"};
@@ -208,24 +208,24 @@ button:
 #       }
 
 
-# 电源和门锁状态传感器
+# Power and door lock status sensors
 sensor:
   - platform: template
-    name: "yunxing_shijian"
+    name: "uptime"
     id: uptime_sensor
     unit_of_measurement: "s"
-    update_interval: never  # 改为手动触发，不自动上报
+    update_interval: never  # Changed to manual trigger, no auto reporting
     lambda: 'return millis() / 1000.0;'
     
   - platform: template
-    name: "mensuo_jiaodu_fankui"
+    name: "door_angle_feedback"
     id: door_position_feedback
     unit_of_measurement: "°"
-    update_interval: never  # 改为手动触发，不自动上报
+    update_interval: never  # Changed to manual trigger, no auto reporting
     lambda: 'return id(door_angle).state;'
 
 
-# Web服务器 - 轻量级配置
+# Web server - Lightweight configuration
 web_server:
   port: 80
 
