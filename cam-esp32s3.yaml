@@ -1,5 +1,5 @@
 esphome:
-  name: esp32s3_cam
+  name: esp32s3-cam
   on_boot:
     then:
     # 这里get触发hass之后， hass主动拉取图片
@@ -101,23 +101,20 @@ esp32_camera_web_server:
   - port: 8081
     mode: snapshot
 
-# 设备状态传感器
-text_sensor:
+# === Angle "readback" (for display) ===
+sensor:
   - platform: template
-    name: "Device Status"
-    id: device_status
-    update_interval: 30s
-    lambda: |-
-      auto time = id(ha_time).now();
-      if (!time.is_valid()) return {"Time not synced"};
-
-      int hour = time.hour;
-      if (hour >= 0 && hour < 8) {
-        return {"Should be sleeping"};
-      } else {
-        return {"Active"};
-      }
-
+    name: "Pan Current Position"
+    id: pan_feedback
+    unit_of_measurement: "°"
+    update_interval: never
+    lambda: 'return id(pan_angle).state;'
+  - platform: template
+    name: "Tilt Current Position"
+    id: tilt_feedback
+    unit_of_measurement: "°"
+    update_interval: never
+    lambda: 'return id(tilt_angle).state;'
 
 # Web服务器
 web_server:

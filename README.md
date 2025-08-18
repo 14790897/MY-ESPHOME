@@ -47,7 +47,7 @@ esphome run voc-esp32c3.yaml
 esphome run sht30-sensor.yaml
 esphome run sht30-esp32c3.yaml --device OTA
 esphome run voc-esp32c3.yaml --device OTA
-esphome run cam-esp32s3.yml --device OTA
+esphome run cam-esp32s3.yaml --device OTA
 esphome run bmp_aht_esp32c3.yaml --device OTA
 esphome run radar-esp32c3.yaml --device OTA
 esphome run led-esp32c3.yaml --device COM33
