@@ -40,21 +40,21 @@ time:
   - platform: homeassistant
     id: ha_time
     on_time:
-      # 每天 00:00 进入夜间长睡眠
+      # 每天 22:00 进入夜间长睡眠
       - seconds: 0
         minutes: 0
-        hours: 0
+        hours: 22
         then:
           - logger.log: "进入夜间深度睡眠"
           - deep_sleep.enter:
               id: deep_sleep_control
-              sleep_duration: 8h
+              sleep_duration: 10h
 
 # 深度睡眠配置：默认每次运行 1 分钟，睡眠 10 分钟
 deep_sleep:
   id: deep_sleep_control
-  run_duration: 60s        # 每次运行 60 秒
-  sleep_duration: 10min    # 然后睡 10 分钟
+  run_duration: 60s        
+  sleep_duration: 10min  
 
 # 启动时日志
 logger:
@@ -127,3 +127,57 @@ web_server:
     password: !secret wifi_password
 
 
+# === Two PWM outputs: Pan / Tilt ===
+output:
+  - platform: ledc
+    id: pan_servo_pwm
+    pin: GPIO1        # ← Modify according to actual wiring
+    frequency: 100Hz   # Servo common 50Hz
+  - platform: ledc
+    id: tilt_servo_pwm
+    pin: GPIO2        # ← Modify according to actual wiring
+    frequency: 100Hz
+
+# === Two servos: Pan / Tilt ===
+servo:
+  - id: pan_servo
+    output: pan_servo_pwm
+    auto_detach_time: 2s
+    min_level: 0%     # Common pulse width mapping (fine-tune for your servo)
+    max_level: 25%
+  - id: tilt_servo
+    output: tilt_servo_pwm
+    auto_detach_time: 2s
+    min_level: 0%
+    max_level: 25%
+
+# === PTZ angle control (0~180°) ===
+number:
+  - platform: template
+    name: "Pan Angle"
+    id: pan_angle
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 90        # Horizontal center
+    optimistic: true
+    set_action:
+      then:
+        - servo.write:
+            id: pan_servo
+            level: !lambda 'return x / 180.0;'
+        - component.update: pan_feedback
+  - platform: template
+    name: "Tilt Angle"
+    id: tilt_angle
+    min_value: 0
+    max_value: 180
+    step: 1
+    initial_value: 90        # Pitch center
+    optimistic: true
+    set_action:
+      then:
+        - servo.write:
+            id: tilt_servo
+            level: !lambda 'return x / 180.0;'
+        - component.update: tilt_feedback
