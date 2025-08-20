@@ -409,7 +409,8 @@ void parseVOCData(uint8_t* buffer, int length, VOCData &data) {
 
   // 验证校验和
   if (frame[8] != checksum) {
-    Serial.printf("⚠️ 校验和不匹配，但继续解析数据 (接收: 0x%02X, 计算: 0x%02X)\n", frame[8], checksum);
+    Serial.printf("⚠️ 校验和不匹配，丢弃数据 (接收: 0x%02X, 计算: 0x%02X)\n", frame[8], checksum);
+    return; // 校验失败时直接返回，保持data.valid为false
   }
 
   // 按照文档协议解析数据
