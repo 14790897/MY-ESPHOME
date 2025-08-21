@@ -178,8 +178,8 @@ sensor:
       }
 
       const float alpha = 0.30f;
-      ema = alpha * da + (1.0f - alpha) * ema;
-      ESP_LOGI("acc", "da=%.3f, ema=%.3f", da, ema);
+      ema = alpha * da + (1.0f - alpha) * ema;  //ESP_LOGI("acc", "da=%.3f, ema=%.3f", da, ema);
+      
       return ema;
 
   # 陀螺仪模长 |ω|（°/s），同样做 EMA
@@ -220,21 +220,13 @@ sensor:
 
       // 4) 正常 EMA 更新
       const float alpha = 0.30f;
-      ema = alpha * w + (1.0f - alpha) * ema;
-
-      ESP_LOGI("gyro", "raw=%.2f, ema=%.2f", w, ema);
+      ema = alpha * w + (1.0f - alpha) * ema; //ESP_LOGI("gyro", "raw=%.2f, ema=%.2f", w, ema);
       return ema;
 
   # 系统运行时间
   - platform: uptime
     name: "Uptime"
     update_interval: 6000s
-
-# 状态指示灯
-light:
-  - platform: status_led
-    name: "Status LED"
-    pin: GPIO2 # ESP32-C3适用的GPIO引脚
 
 globals:
   - id: g_base
