@@ -1,0 +1,289 @@
+esphome:
+  name: bmi160-esp32c3
+  platformio_options:
+    monitor_speed: 115200
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # 创建WiFi热点作为备用
+  ap:
+    ssid: "BMI160-ESP32C3"
+    password: "12345678"
+
+# Home Assistant API
+api:
+
+# OTA更新
+ota:
+  platform: esphome
+
+# 日志配置
+logger:
+  level: INFO
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
+
+# I2C总线配置
+i2c:
+  sda: GPIO4 # 根据实际接线调整
+  scl: GPIO5 # 根据实际接线调整
+  scan: true
+  frequency: 400kHz
+
+# BMI160传感器配置
+sensor:
+  # BMI160加速度计
+  - platform: bmi160
+    address: 0x68 # BMI160默认I2C地址，如果SDO接高电平则为0x69
+    acceleration_x:
+      name: "BMI160 Acceleration X"
+      id: bmi160_accel_x
+      unit_of_measurement: "m/s²"
+      accuracy_decimals: 3
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+    acceleration_y:
+      name: "BMI160 Acceleration Y"
+      id: bmi160_accel_y
+      unit_of_measurement: "m/s²"
+      accuracy_decimals: 3
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+    acceleration_z:
+      name: "BMI160 Acceleration Z"
+      id: bmi160_accel_z
+      unit_of_measurement: "m/s²"
+      accuracy_decimals: 3
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+    gyroscope_x:
+      name: "BMI160 Gyroscope X"
+      id: bmi160_gyro_x
+      unit_of_measurement: "°/s"
+      accuracy_decimals: 3
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+    gyroscope_y:
+      name: "BMI160 Gyroscope Y"
+      id: bmi160_gyro_y
+      unit_of_measurement: "°/s"
+      accuracy_decimals: 3
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+    gyroscope_z:
+      name: "BMI160 Gyroscope Z"
+      id: bmi160_gyro_z
+      unit_of_measurement: "°/s"
+      accuracy_decimals: 3
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+    temperature:
+      name: "BMI160 Temperature"
+      id: bmi160_temp
+      unit_of_measurement: "°C"
+      accuracy_decimals: 1
+    update_interval: 1s
+
+  # 计算合成加速度
+  - platform: template
+    name: "BMI160 Total Acceleration"
+    id: bmi160_total_accel
+    unit_of_measurement: "m/s²"
+    accuracy_decimals: 3
+    lambda: |-
+      float ax = id(bmi160_accel_x).state;
+      float ay = id(bmi160_accel_y).state;
+      float az = id(bmi160_accel_z).state;
+      return sqrt(ax*ax + ay*ay + az*az);
+    update_interval: 1s
+
+  # 计算倾斜角度
+  - platform: template
+    name: "BMI160 Tilt Angle X"
+    id: bmi160_tilt_x
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    lambda: |-
+      float ax = id(bmi160_accel_x).state;
+      float ay = id(bmi160_accel_y).state;
+      float az = id(bmi160_accel_z).state;
+      return atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.14159;
+    update_interval: 1s
+
+  - platform: template
+    name: "BMI160 Tilt Angle Y"
+    id: bmi160_tilt_y
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    lambda: |-
+      float ax = id(bmi160_accel_x).state;
+      float ay = id(bmi160_accel_y).state;
+      float az = id(bmi160_accel_z).state;
+      return atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / 3.14159;
+    update_interval: 1s
+
+    # Δa = |a| - g_base（单位换成 g，更直观）
+  - platform: template
+    name: "Δa"
+    id: delta_a_ema
+    unit_of_measurement: "g"
+    accuracy_decimals: 3
+    update_interval: 100ms
+    lambda: |-
+      if (!id(bmi160_accel_x).has_state() ||
+          !id(bmi160_accel_y).has_state() ||
+          !id(bmi160_accel_z).has_state()) {
+      ESP_LOGD("acc", "waiting states...");
+      return NAN;
+      }
+
+      const float G = 9.81f;
+      static float ema = 0.0f;
+      static bool  inited = false;
+
+      float ax = id(bmi160_accel_x).state;
+      float ay = id(bmi160_accel_y).state;
+      float az = id(bmi160_accel_z).state;
+      float amag = sqrtf(ax*ax + ay*ay + az*az);
+      float da = fabsf(amag - 9.81f) / G;
+
+      if (!inited || isnan(ema) || isnan(da)) {
+      if (!isnan(da)) { ema = da; inited = true; ESP_LOGI("acc","init ema with da=%.3f", da); }
+      return ema;
+      }
+
+      const float alpha = 0.30f;
+      ema = alpha * da + (1.0f - alpha) * ema;
+      ESP_LOGI("acc", "da=%.3f, ema=%.3f", da, ema);
+      return ema;
+
+  # 陀螺仪模长 |ω|（°/s），同样做 EMA
+  - platform: template
+    name: "Δgyro"
+    id: gyro_mag_ema
+    unit_of_measurement: "°/s"
+    accuracy_decimals: 1
+    update_interval: 100ms # 建议加快到 100ms 更灵敏
+    lambda: |-
+      // 1) 先确认三轴都有值
+      if (!id(bmi160_gyro_x).has_state() ||
+          !id(bmi160_gyro_y).has_state() ||
+          !id(bmi160_gyro_z).has_state()) {
+      ESP_LOGD("gyro", "waiting states...");
+      return NAN;
+      }
+
+      static float ema = 0.0f;
+      static bool  inited = false;
+
+      float gx = id(bmi160_gyro_x).state;
+      float gy = id(bmi160_gyro_y).state;
+      float gz = id(bmi160_gyro_z).state;
+
+      // 2) 计算原始模长
+      float w = sqrtf(gx*gx + gy*gy + gz*gz);
+
+      // 3) 如果之前 ema 曾经是 NaN，或首次有数据，用当前 w 来初始化
+      if (!inited || isnan(ema) || isnan(w)) {
+      if (!isnan(w)) {
+          ema = w;
+          inited = true;
+          ESP_LOGI("gyro", "init ema with raw=%.2f", w);
+      }
+      return ema;  // 可能是 NAN（w 也是 NaN 时），下帧再算
+      }
+
+      // 4) 正常 EMA 更新
+      const float alpha = 0.30f;
+      ema = alpha * w + (1.0f - alpha) * ema;
+
+      ESP_LOGI("gyro", "raw=%.2f, ema=%.2f", w, ema);
+      return ema;
+
+  # 系统运行时间
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 6000s
+
+# 状态指示灯
+light:
+  - platform: status_led
+    name: "Status LED"
+    pin: GPIO2 # ESP32-C3适用的GPIO引脚
+
+globals:
+  - id: g_base
+    type: float
+    restore_value: yes
+    initial_value: "9.81" # 初始按 1g，标定后会覆盖
+
+button:
+  - platform: template
+    name: "标定1g基线(静置按)"
+    icon: mdi:axis-arrow
+    on_press:
+      - lambda: |-
+          // 请在设备完全静止且放置稳定时按下
+          const int N = 100;
+          float sx = 0, sy = 0, sz = 0;
+          for (int i = 0; i < N; i++) {
+            sx += id(bmi160_accel_x).state;
+            sy += id(bmi160_accel_y).state;
+            sz += id(bmi160_accel_z).state;
+            delay(10); // 约1秒
+          }
+          float ax = sx / N, ay = sy / N, az = sz / N;
+          float g = sqrtf(ax*ax + ay*ay + az*az);
+          id(g_base) = g;   // 保存为新的 1g 基线
+          ESP_LOGI("calib", "g_base calibrated = %.4f m/s^2", id(g_base));
+
+binary_sensor:
+  - platform: template
+    name: "Motion Detection (Fused)"
+    id: motion_fused
+    lambda: |-
+      // 滞回阈值（可按环境微调）
+      const float TH_ON_DA  = 0.10f;  // Δa 触发阈值（g）
+      const float TH_OFF_DA = 0.05f;  // Δa 释放阈值（g）
+      const float TH_ON_W   = 30.0f;  // |ω| 触发阈值（°/s）
+      const float TH_OFF_W  = 12.0f;  // |ω| 释放阈值（°/s）
+
+      static bool state = false;
+      float da = id(delta_a_ema).state;
+      float w  = id(gyro_mag_ema).state;
+
+      if (!state) {
+        if (da > TH_ON_DA || w > TH_ON_W) state = true;   // 触发：任一满足
+      } else {
+        if (da < TH_OFF_DA && w < TH_OFF_W) state = false; // 释放：同时低于
+      }
+      return state;
+    filters:
+      - delayed_on: 100ms # 去抖（触发保持）
+      - delayed_off: 500ms # 释放保持，防抖更久
+
