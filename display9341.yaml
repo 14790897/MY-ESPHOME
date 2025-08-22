@@ -4,12 +4,6 @@ spi:
   clk_pin: GPIO7
   mosi_pin: GPIO2
 #   miso_pin: GPIO3 # 如果没接，可以删掉
-
-# font:
-#   - id: font_s
-#     size: 16
-#   - id: font_m
-#     size: 24
 font:
   - file: "static/NotoSansSC-Regular.ttf"
     id: font_xs
@@ -200,9 +194,44 @@ display:
       } else {
         it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "CO2: --");
       }
+      y_pos += section_spacing;
+      
+      // 显示天气预报信息
+      it.print(margin, y_pos, section_font, Color(200, 200, 200), "天气预报:");
+      y_pos += line_spacing;
+      
+      // 显示室外温度
+      if (id(weather_temperature).has_state()) {
+        auto outdoor_temp = id(weather_temperature).state;
+        Color temp_color = Color(100, 200, 255);  // 浅蓝色表示室外
+        it.printf(margin + 10, y_pos, data_font, temp_color, "室外: %.1f°C", outdoor_temp);
+      } else {
+        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "室外: --°C");
+      }
+      y_pos += line_spacing;
+      
+      // 显示天气状况和湿度
+      std::string weather_line = "";
+      if (id(weather_condition).has_state()) {
+        weather_line = id(weather_condition).state;
+      }
+      if (id(weather_humidity).has_state()) {
+        if (!weather_line.empty()) {
+          weather_line += " ";
+        }
+        char humidity_str[20];
+        snprintf(humidity_str, sizeof(humidity_str), "%.0f%%", id(weather_humidity).state);
+        weather_line += humidity_str;
+      }
+      
+      if (!weather_line.empty()) {
+        it.printf(margin + 10, y_pos, data_font, Color(150, 255, 150), "%s", weather_line.c_str());
+      } else {
+        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "天气: --");
+      }
       
       // 显示时间戳 - 自适应位置到底部
       int time_y = screen_height - 15;
-      it.strftime(margin, time_y, time_font, Color(255, 255, 0), "%m/%d %H:%M", id(sntp_time).now());
+      it.strftime(margin, time_y, time_font, Color(255, 255, 0), "%m/%d %H:%M", id(ha_time).now());
 
 

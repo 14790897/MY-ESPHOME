@@ -1,5 +1,5 @@
 esphome:
-  name: display-esp32s3
+  name: envpanel
 
 # 选用带 8MB Flash + 8MB PSRAM 的 S3 板卡变体
 esp32:
@@ -21,6 +21,21 @@ api:
 ota:
   platform: esphome
 
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: 22
+        then:
+          - logger.log: "Entering night deep sleep"
+          - deep_sleep.enter:
+              id: deep_sleep_control
+              sleep_duration: 10h
+
+deep_sleep:
+  id: deep_sleep_control
 # 建议用 USB CDC 日志（S3 很稳），串口则设定 baud_rate: 115200
 logger:
   baud_rate: 0   # 0=禁用硬件串口日志，改用 USB CDC
@@ -31,11 +46,6 @@ web_server:
     username: admin
     password: !secret wifi_password
 
-# 时间同步
-time:
-  - platform: sntp
-    id: sntp_time
-    timezone: Asia/Shanghai
 
 # 引入显示（单独文件）
 packages:
