@@ -1,11 +1,11 @@
 esphome:
   name: door-opener-esp32c3
   friendly_name: "门锁控制器"
-    
+  
 esp32:
   board: airm2m_core_esp32c3
   framework:
-    type: arduino
+    type: esp-idf
 
 wifi:
   ssid: !secret wifi_ssid
@@ -190,24 +190,6 @@ button:
         - component.update: door_position_feedback
 
 
-# # Device status sensor
-# text_sensor:
-#   - platform: template
-#     name: "device_status"
-#     id: device_status
-#     update_interval: 60s  # Increased update interval to save power
-#     lambda: |-
-#       auto time = id(ha_time).now();
-#       if (!time.is_valid()) return {"Time not synced"};
-
-#       int hour = time.hour;
-#       if (hour >= 0 && hour < 8) {
-#         return {"Night sleep mode"};
-#       } else {
-#         return {"Ready for door control"};
-#       }
-
-
 # Power and door lock status sensors
 sensor:
   - platform: template
@@ -225,9 +207,48 @@ sensor:
     lambda: 'return id(door_angle).state;'
 
 
-# Web server - Lightweight configuration
-web_server:
-  port: 80
 
 
+# （可选）同时做 HA 蓝牙代理
+bluetooth_proxy:
+  active: true
+
+# —— 防抖/冷却计时，避免重复开门 —— 
+globals:
+  - id: last_open_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+esp32_ble_tracker:
+  on_ble_advertise:
+    - then:
+        - lambda: |-
+            const int RSSI_THRESHOLD   = -85;      // 先放宽，调通后再收紧
+            const uint32_t COOLDOWN_MS = 5000;
+            const char *ALLOW_UUID = "E2C56DB5DFFB48D2B060D0F5A71096E0";
+
+            auto ib = x.get_ibeacon();
+            if (!ib.has_value()) return;
+
+            int rssi = x.get_rssi();
+            if (rssi <= RSSI_THRESHOLD) { ESP_LOGD("ble_open", "weak rssi=%d", rssi); return; }
+
+            std::string u = ib->get_uuid().to_string();
+            std::string u2; u2.reserve(32);
+            for (char c : u) if (c!='-') u2.push_back(::toupper(c));
+            if (u2 != ALLOW_UUID) { ESP_LOGD("ble_open", "uuid mismatch: %s", u.c_str()); return; }
+
+            uint16_t minor_pin = ib->get_minor();
+            ESP_LOGI("ble_open", "hit: rssi=%d minor=%u", rssi, minor_pin);
+
+            bool pin_ok = (minor_pin == 1111 || minor_pin == 2222 || minor_pin == 3344);
+            if (!pin_ok) return;
+
+            static uint32_t last = 0;
+            uint32_t now = millis();
+            if (now - last < COOLDOWN_MS) return;
+            last = now;
+
+            id(door_open_btn).press();
 
