@@ -20,7 +20,6 @@ wifi:
 api:
 ota:
   platform: esphome
-
 time:
   - platform: homeassistant
     id: ha_time
@@ -30,6 +29,12 @@ time:
         hours: 22
         then:
           - logger.log: "Entering night deep sleep"
+          - if:
+              condition:
+                light.is_on: lcd_backlight
+              then:
+                - light.turn_off: lcd_backlight
+                - delay: 300ms     # 给背光驱动一点关断时间
           - deep_sleep.enter:
               id: deep_sleep_control
               sleep_duration: 10h

@@ -1,0 +1,50 @@
+esphome:
+  name: ens160-node
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+api:
+
+# OTA更新
+ota:
+  platform: esphome
+
+# 日志配置
+logger:
+  level: INFO
+
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: true
+# 温湿度传感器用于补偿（可选，提升准确度）
+sensor:
+  - platform: aht10 # AHT10/20/21 通用组件
+    temperature:
+      name: "ENV Temperature"
+      id: t_env
+    humidity:
+      name: "ENV Humidity"
+      id: h_env
+    address: 0x38
+    update_interval: 60s
+
+  - platform: ens160_i2c
+    eco2:
+      name: "ENS160 eCO2"
+    tvoc:
+      name: "ENS160 TVOC"
+    aqi:
+      id: ens160_aqi
+      name: "ENS160 AQI"
+    address: 0x52
+    compensation:
+      temperature: t_env
+      humidity: h_env
+    update_interval: 60s # ≥1s（传感器数据准备可能需~1s）
