@@ -66,16 +66,16 @@ sensor:
   - platform: template
     name: "VOC"
     id: sensor_voc
-    unit_of_measurement: "μg/m³"
-    accuracy_decimals: 0
+    unit_of_measurement: "mg/m³"
+    accuracy_decimals: 3
     state_class: "measurement"
     icon: "mdi:chemical-weapon"
 
   - platform: template
     name: "Formaldehyde (CH₂O)"
     id: sensor_ch2o
-    unit_of_measurement: "μg/m³"
-    accuracy_decimals: 0
+    unit_of_measurement: "mg/m³"
+    accuracy_decimals: 3
     state_class: "measurement"
     icon: "mdi:molecule"
 
@@ -232,6 +232,10 @@ interval:
             uint16_t voc_ugm3 = frame[1] * 256 + frame[2];
             uint16_t ch2o_ugm3 = frame[3] * 256 + frame[4];
             uint16_t eco2_ppm = frame[5] * 256 + frame[6];
+            
+            // 转换为毫克单位 (μg/m³ → mg/m³)
+            float voc_mgm3 = (float)voc_ugm3 / 1000.0;
+            float ch2o_mgm3 = (float)ch2o_ugm3 / 1000.0;
 
             // 温度解析
             uint16_t temp_raw = frame[7] * 256 + frame[8];
@@ -247,19 +251,19 @@ interval:
             uint16_t humidity_raw = frame[9] * 256 + frame[10];
             float humidity_rh = (float)humidity_raw * 0.1;
 
-            ESP_LOGI("21voc_uart", "解析结果: VOC=%d, CH2O=%d, eCO2=%d, 温度=%.1f, 湿度=%.1f",
-                     voc_ugm3, ch2o_ugm3, eco2_ppm, temperature_c, humidity_rh);
+            ESP_LOGI("21voc_uart", "解析结果: VOC=%d μg/m³(%.3f mg/m³), CH2O=%d μg/m³(%.3f mg/m³), eCO2=%d ppm, 温度=%.1f°C, 湿度=%.1f%%",
+                     voc_ugm3, voc_mgm3, ch2o_ugm3, ch2o_mgm3, eco2_ppm, temperature_c, humidity_rh);
 
             // 数据有效性检查
             bool data_valid = true;
 
-            // 合理性检查 (根据传感器规格)
-            if (voc_ugm3 > 60000) {  // VOC通常不会超过60000 μg/m³
-              ESP_LOGW("21voc_uart", "❌ VOC数值异常: %d μg/m³", voc_ugm3);
+            // 合理性检查 (根据传感器规格) - 使用毫克单位
+            if (voc_mgm3 > 60.0) {  // VOC通常不会超过60 mg/m³
+              ESP_LOGW("21voc_uart", "❌ VOC数值异常: %.3f mg/m³", voc_mgm3);
               data_valid = false;
             }
-            if (ch2o_ugm3 > 5000) {  // 甲醛通常不会超过5000 μg/m³
-              ESP_LOGW("21voc_uart", "❌ 甲醛数值异常: %d μg/m³", ch2o_ugm3);
+            if (ch2o_mgm3 > 5.0) {  // 甲醛通常不会超过5 mg/m³
+              ESP_LOGW("21voc_uart", "❌ 甲醛数值异常: %.3f mg/m³", ch2o_mgm3);
               data_valid = false;
             }
             if (eco2_ppm > 10000) {  // eCO2通常不会超过10000 ppm
@@ -279,18 +283,18 @@ interval:
               ESP_LOGI("21voc_uart", "📊 === 21VOC传感器读数 ===");
               ESP_LOGI("21voc_uart", "⏰ 时间戳: %lu ms", millis());
 
-              // 发布VOC数据
-              if (id(last_voc) == -999.0 || abs((float)voc_ugm3 - id(last_voc)) >= 1.0) {
-                ESP_LOGI("21voc_uart", "✅ 发布VOC: %d μg/m³", voc_ugm3);
-                id(sensor_voc).publish_state(voc_ugm3);
-                id(last_voc) = voc_ugm3;
+              // 发布VOC数据 (毫克单位)
+              if (id(last_voc) == -999.0 || abs(voc_mgm3 - id(last_voc)) >= 0.001) {
+                ESP_LOGI("21voc_uart", "✅ 发布VOC: %.3f mg/m³", voc_mgm3);
+                id(sensor_voc).publish_state(voc_mgm3);
+                id(last_voc) = voc_mgm3;
               }
 
-              // 发布甲醛数据
-              if (id(last_ch2o) == -999.0 || abs((float)ch2o_ugm3 - id(last_ch2o)) >= 1.0) {
-                ESP_LOGI("21voc_uart", "✅ 发布甲醛: %d μg/m³", ch2o_ugm3);
-                id(sensor_ch2o).publish_state(ch2o_ugm3);
-                id(last_ch2o) = ch2o_ugm3;
+              // 发布甲醛数据 (毫克单位)
+              if (id(last_ch2o) == -999.0 || abs(ch2o_mgm3 - id(last_ch2o)) >= 0.001) {
+                ESP_LOGI("21voc_uart", "✅ 发布甲醛: %.3f mg/m³", ch2o_mgm3);
+                id(sensor_ch2o).publish_state(ch2o_mgm3);
+                id(last_ch2o) = ch2o_mgm3;
               }
 
               // 发布eCO2数据
@@ -314,31 +318,31 @@ interval:
                 id(last_humidity) = humidity_rh;
               }
 
-              // 空气质量评估逻辑 (基于VOC和甲醛)
+              // 空气质量评估逻辑 (基于VOC和甲醛) - 使用毫克单位
               std::string air_quality = "优秀";
               int quality_score = 0;
 
-              // VOC评估 (μg/m³) - 根据WHO标准
-              if (voc_ugm3 <= 300) {
+              // VOC评估 (mg/m³) - 根据WHO标准
+              if (voc_mgm3 <= 0.3) {
                 quality_score += 1; // 优秀
-              } else if (voc_ugm3 <= 600) {
+              } else if (voc_mgm3 <= 0.6) {
                 quality_score += 2; // 良好
-              } else if (voc_ugm3 <= 1000) {
+              } else if (voc_mgm3 <= 1.0) {
                 quality_score += 3; // 中等
-              } else if (voc_ugm3 <= 3000) {
+              } else if (voc_mgm3 <= 3.0) {
                 quality_score += 4; // 较差
               } else {
                 quality_score += 5; // 很差
               }
 
-              // 甲醛评估 (μg/m³) - 根据WHO标准
-              if (ch2o_ugm3 <= 80) {
+              // 甲醛评估 (mg/m³) - 根据WHO标准
+              if (ch2o_mgm3 <= 0.08) {
                 quality_score += 1; // 优秀
-              } else if (ch2o_ugm3 <= 100) {
+              } else if (ch2o_mgm3 <= 0.1) {
                 quality_score += 2; // 良好
-              } else if (ch2o_ugm3 <= 300) {
+              } else if (ch2o_mgm3 <= 0.3) {
                 quality_score += 3; // 中等
-              } else if (ch2o_ugm3 <= 500) {
+              } else if (ch2o_mgm3 <= 0.5) {
                 quality_score += 4; // 较差
               } else {
                 quality_score += 5; // 很差
@@ -358,7 +362,7 @@ interval:
               }
 
               ESP_LOGI("21voc_uart", "🌟 空气质量评估: %s (评分: %d)", air_quality.c_str(), quality_score);
-              ESP_LOGI("21voc_uart", "   VOC: %d μg/m³, 甲醛: %d μg/m³", voc_ugm3, ch2o_ugm3);
+              ESP_LOGI("21voc_uart", "   VOC: %.3f mg/m³, 甲醛: %.3f mg/m³", voc_mgm3, ch2o_mgm3);
 
               // 发布空气质量评估
               if (id(last_air_quality) != air_quality) {

@@ -83,6 +83,8 @@ sensor:
 number:
   - platform: ld2410
     ld2410_id: ld2410_radar
+    timeout:
+      name: "LD2410 Timeout"
     max_move_distance_gate:
       name: "LD2410 Max Move Distance Gate"
     max_still_distance_gate:
