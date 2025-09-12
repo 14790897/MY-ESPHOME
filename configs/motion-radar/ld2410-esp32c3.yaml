@@ -64,11 +64,11 @@ sensor:
   - platform: ld2410
     moving_distance:
       name: "LD2410 Moving Distance"
-      unit_of_measurement: "m"
+      unit_of_measurement: "cm"
       accuracy_decimals: 2
     still_distance:
       name: "LD2410 Still Distance"
-      unit_of_measurement: "m"
+      unit_of_measurement: "cm"
       accuracy_decimals: 2
     moving_energy:
       name: "LD2410 Moving Energy"
@@ -76,7 +76,7 @@ sensor:
       name: "LD2410 Still Energy"
     detection_distance:
       name: "LD2410 Detection Distance"
-      unit_of_measurement: "m"
+      unit_of_measurement: "cm"
       accuracy_decimals: 2
 
 # Numbers for LD2410 configuration (replaces moved options)
