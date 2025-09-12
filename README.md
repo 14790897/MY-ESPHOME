@@ -56,4 +56,6 @@ esphome run ld2402-esp32c3.yaml --device OTA
 esphome run PTZ-esp32c3.yaml --device OTA
 esphome run bmi160-esp32c3.yaml --device OTA
 esphome run esp32s3-n8.yaml --device OTA
+esphome run ina226-esp32c3.yaml --device OTA
+esphome run ld2410-esp32c3.yaml --device OTA
 那个注意一下啊，esp32c3的12,13是它的led的，所以你在这里输入高电频的话，那个led会闪烁

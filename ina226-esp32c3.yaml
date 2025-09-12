@@ -1,0 +1,81 @@
+esphome:
+  name: ina226-esp32c3
+  friendly_name: "INA226 ESP32-C3 电流功率监测"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# 日志配置
+logger:
+  level: INFO
+
+# API 与 OTA
+api:
+
+ota:
+  platform: esphome
+
+# WiFi（从 secrets.yaml 读取）
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Web 控制台
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
+
+# I2C 总线（C3 常用 4/5）
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: true
+
+# INA226 直流电流/功率传感器
+sensor:
+
+  - platform: ina226
+    address: 0x40            # Default module address, usually 0x40
+    shunt_resistance: 0.1 ohm # R100 shunt resistor
+    max_current: 0.8A         # Recommended ≤0.8A for R100 (about 80mV/0.1Ω)
+    update_interval: 1s
+    # Optional: increase accuracy, reduce noise (slightly increases measurement time)
+    adc_time: 140us
+    adc_averaging: 16
+
+    bus_voltage:
+      name: "Bus Voltage"
+      id: ina226_bus_v
+      unit_of_measurement: "V"
+      accuracy_decimals: 3
+
+    shunt_voltage:
+      name: "Shunt Voltage"
+      id: ina226_shunt_v
+      unit_of_measurement: "V"
+      accuracy_decimals: 6
+
+    current:
+      name: "Current"
+      id: ina226_current
+      unit_of_measurement: "A"
+      accuracy_decimals: 3
+
+    power:
+      name: "Power"
+      id: ina226_power
+      unit_of_measurement: "W"
+      accuracy_decimals: 2
+
+
+binary_sensor:
+  - platform: status
+    name: "设备在线"
+
+switch:
+  - platform: restart
+    name: "设备重启"

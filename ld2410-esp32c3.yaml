@@ -1,0 +1,94 @@
+esphome:
+  name: ld2410-esp32c3
+  friendly_name: "LD2410 Radar Sensor"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# Logging
+logger:
+  level: INFO
+  baud_rate: 115200
+
+# Home Assistant API
+api:
+
+# OTA updates
+ota:
+  platform: esphome
+
+# WiFi configuration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+captive_portal:
+
+# Optional web server for quick debugging
+web_server:
+  port: 80
+  version: 2
+
+# UART for LD2410
+uart:
+  id: ld2410_uart
+  tx_pin: GPIO0
+  rx_pin: GPIO1
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+# LD2410 component
+ld2410:
+  id: ld2410_radar
+  uart_id: ld2410_uart
+  
+
+# Presence binary sensors
+binary_sensor:
+  - platform: ld2410
+    has_target:
+      name: "LD2410 Has Target"
+      device_class: occupancy
+    has_moving_target:
+      name: "LD2410 Moving Target"
+      device_class: motion
+    has_still_target:
+      name: "LD2410 Still Target"
+      device_class: occupancy
+
+# Distance and energy sensors
+sensor:
+  - platform: ld2410
+    moving_distance:
+      name: "LD2410 Moving Distance"
+      unit_of_measurement: "m"
+      accuracy_decimals: 2
+    still_distance:
+      name: "LD2410 Still Distance"
+      unit_of_measurement: "m"
+      accuracy_decimals: 2
+    moving_energy:
+      name: "LD2410 Moving Energy"
+    still_energy:
+      name: "LD2410 Still Energy"
+    detection_distance:
+      name: "LD2410 Detection Distance"
+      unit_of_measurement: "m"
+      accuracy_decimals: 2
+
+# Numbers for LD2410 configuration (replaces moved options)
+number:
+  - platform: ld2410
+    ld2410_id: ld2410_radar
+    max_move_distance_gate:
+      name: "LD2410 Max Move Distance Gate"
+    max_still_distance_gate:
+      name: "LD2410 Max Still Distance Gate"
+    g0:
+      move_threshold:
+        name: "LD2410 Gate 0 Move Threshold"
+      still_threshold:
+        name: "LD2410 Gate 0 Still Threshold"

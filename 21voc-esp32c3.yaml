@@ -1,0 +1,429 @@
+esphome:
+  name: 21voc-esp32c3
+  friendly_name: "21VOC-Temperature-Humidity ESP32-C3 Sensor"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# 从secrets.yaml文件中读取WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # WiFi连接失败时的处理
+  ap:
+    ssid: "ESP32C3-21VOC Fallback Hotspot"
+    password: "12345678"
+
+  # WiFi连接状态回调
+  on_connect:
+    - logger.log: "WiFi连接成功！"
+  on_disconnect:
+    - logger.log: "WiFi连接断开！"
+
+# UART配置 - 用于读取21VOC传感器数据
+uart:
+  id: uart_bus
+  tx_pin: GPIO0  # TX引脚 - 接传感器RX
+  rx_pin: GPIO1  # RX引脚 - 接传感器TX
+  baud_rate: 9600  # 21VOC传感器波特率
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 512
+
+# 全局变量存储21VOC传感器数据和上次数值
+globals:
+  - id: last_voc
+    type: float
+    restore_value: no
+    initial_value: '-999.0'
+  - id: last_ch2o
+    type: float
+    restore_value: no
+    initial_value: '-999.0'
+  - id: last_eco2
+    type: float
+    restore_value: no
+    initial_value: '-999.0'
+  - id: last_temperature
+    type: float
+    restore_value: no
+    initial_value: '-999.0'
+  - id: last_humidity
+    type: float
+    restore_value: no
+    initial_value: '-999.0'
+  - id: last_air_quality
+    type: std::string
+    restore_value: no
+    initial_value: '"未知"'
+
+sensor:
+  # 21VOC传感器数据
+  - platform: template
+    name: "VOC"
+    id: sensor_voc
+    unit_of_measurement: "μg/m³"
+    accuracy_decimals: 0
+    state_class: "measurement"
+    icon: "mdi:chemical-weapon"
+
+  - platform: template
+    name: "Formaldehyde (CH₂O)"
+    id: sensor_ch2o
+    unit_of_measurement: "μg/m³"
+    accuracy_decimals: 0
+    state_class: "measurement"
+    icon: "mdi:molecule"
+
+  - platform: template
+    name: "eCO2"
+    id: sensor_eco2
+    unit_of_measurement: "ppm"
+    accuracy_decimals: 0
+    state_class: "measurement"
+    icon: "mdi:molecule-co2"
+
+  - platform: template
+    name: "Temperature"
+    id: sensor_temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    state_class: "measurement"
+    device_class: "temperature"
+    icon: "mdi:thermometer"
+
+  - platform: template
+    name: "Humidity"
+    id: sensor_humidity
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    state_class: "measurement"
+    device_class: "humidity"
+    icon: "mdi:water-percent"
+
+  # ESP32-C3内部温度传感器 (用于对比)
+  - platform: internal_temperature
+    name: "ESP32-C3 Internal Temperature"
+    update_interval: 60s
+
+# 21VOC传感器数据处理间隔 - 基于你的C++代码实现
+interval:
+  - interval: 2000ms  # 每2秒检查一次UART数据
+    then:
+      - lambda: |-
+          ESP_LOGI("21voc_uart", "⏰ 开始读取21VOC传感器数据");
+
+          // 清空接收缓冲区中的旧数据
+          int cleared = 0;
+          uint8_t dummy_buffer[1];
+          while (id(uart_bus).available()) {
+            if (id(uart_bus).read_array(dummy_buffer, 1) > 0) {
+              cleared++;
+            }
+            delay(1);
+          }
+          if (cleared > 0) {
+            ESP_LOGI("21voc_uart", "清空了%d字节旧数据", cleared);
+          }
+
+          // 等待数据到达，超时2秒
+          uint8_t buffer[64];
+          int bytesRead = 0;
+          unsigned long startTime = millis();
+
+          while (bytesRead < 64 && (millis() - startTime) < 2000) {
+            if (id(uart_bus).available()) {
+              uint8_t single_byte[1];
+              if (id(uart_bus).read_array(single_byte, 1) > 0) {
+                buffer[bytesRead] = single_byte[0];
+                bytesRead++;
+              }
+
+              // 如果连续没有新数据超过100ms，认为一帧数据接收完成
+              unsigned long lastByteTime = millis();
+              while (!id(uart_bus).available() && (millis() - lastByteTime) < 100) {
+                delay(5);
+              }
+              if (!id(uart_bus).available()) {
+                break;
+              }
+            }
+            delay(10);
+          }
+
+          if (bytesRead > 0) {
+            // 调试：显示接收到的原始数据
+            ESP_LOGI("21voc_uart", "📡 接收到 %d 字节:", bytesRead);
+            std::string hex_data = "";
+            for (int i = 0; i < bytesRead; i++) {
+              char hex_str[4];
+              sprintf(hex_str, "%02X ", buffer[i]);
+              hex_data += hex_str;
+            }
+            ESP_LOGI("21voc_uart", "原始数据: %s", hex_data.c_str());
+
+            // 解析21VOC数据 - 严格按照你的C++代码的parse21VOCData函数
+            ESP_LOGI("21voc_uart", "🔍 解析21VOC数据: 长度=%d", bytesRead);
+
+            // 检查数据帧长度 (需要12字节)
+            if (bytesRead < 12) {
+              ESP_LOGW("21voc_uart", "数据长度不足（需要12字节，实际%d字节）", bytesRead);
+              return;
+            }
+
+            // 寻找正确的数据帧起始位置 (0x2C开头)
+            int frameStart = -1;
+            for (int i = 0; i <= bytesRead - 12; i++) {
+              if (buffer[i] == 0x2C) {
+                frameStart = i;
+                ESP_LOGI("21voc_uart", "找到帧头0x2C在位置%d", i);
+                break;
+              }
+            }
+
+            if (frameStart == -1) {
+              ESP_LOGW("21voc_uart", "未找到帧头0x2C");
+              // 尝试其他可能的帧头
+              for (int i = 0; i <= bytesRead - 12; i++) {
+                if (buffer[i] == 0xFF || buffer[i] == 0x42 || buffer[i] == 0x4D) {
+                  ESP_LOGW("21voc_uart", "发现可能的帧头0x%02X在位置%d", buffer[i], i);
+                }
+              }
+              return;
+            }
+
+            // 检查是否有足够的字节
+            if (frameStart + 12 > bytesRead) {
+              ESP_LOGW("21voc_uart", "帧后数据不足");
+              return;
+            }
+
+            // 提取12字节数据帧
+            uint8_t frame[12];
+            for (int i = 0; i < 12; i++) {
+              frame[i] = buffer[frameStart + i];
+            }
+
+            ESP_LOGI("21voc_uart", "完整帧数据: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                     frame[0], frame[1], frame[2], frame[3], frame[4], frame[5],
+                     frame[6], frame[7], frame[8], frame[9], frame[10], frame[11]);
+
+            // 校验和计算 - 按照你的C++代码
+            uint8_t checksum = 0;
+            for (int i = 0; i < 11; i++) {
+              checksum += frame[i];
+            }
+            checksum = (~checksum) + 1;
+
+            ESP_LOGI("21voc_uart", "计算校验和: 0x%02X, 接收校验和: 0x%02X", checksum, frame[11]);
+
+            // 验证校验和
+            if (frame[11] != checksum) {
+              ESP_LOGW("21voc_uart", "校验和不匹配，但继续解析");
+            } else {
+              ESP_LOGI("21voc_uart", "校验和正确");
+            }
+
+            // 按照协议解析数据
+            uint16_t voc_ugm3 = frame[1] * 256 + frame[2];
+            uint16_t ch2o_ugm3 = frame[3] * 256 + frame[4];
+            uint16_t eco2_ppm = frame[5] * 256 + frame[6];
+
+            // 温度解析
+            uint16_t temp_raw = frame[7] * 256 + frame[8];
+            float temperature_c;
+            if (temp_raw > 0x8000) {
+              temp_raw = 0x10000 - temp_raw;
+              temperature_c = -(float)temp_raw * 0.1;
+            } else {
+              temperature_c = (float)temp_raw * 0.1;
+            }
+
+            // 湿度解析
+            uint16_t humidity_raw = frame[9] * 256 + frame[10];
+            float humidity_rh = (float)humidity_raw * 0.1;
+
+            ESP_LOGI("21voc_uart", "解析结果: VOC=%d, CH2O=%d, eCO2=%d, 温度=%.1f, 湿度=%.1f",
+                     voc_ugm3, ch2o_ugm3, eco2_ppm, temperature_c, humidity_rh);
+
+            // 数据有效性检查
+            bool data_valid = true;
+
+            // 合理性检查 (根据传感器规格)
+            if (voc_ugm3 > 60000) {  // VOC通常不会超过60000 μg/m³
+              ESP_LOGW("21voc_uart", "❌ VOC数值异常: %d μg/m³", voc_ugm3);
+              data_valid = false;
+            }
+            if (ch2o_ugm3 > 5000) {  // 甲醛通常不会超过5000 μg/m³
+              ESP_LOGW("21voc_uart", "❌ 甲醛数值异常: %d μg/m³", ch2o_ugm3);
+              data_valid = false;
+            }
+            if (eco2_ppm > 10000) {  // eCO2通常不会超过10000 ppm
+              ESP_LOGW("21voc_uart", "❌ eCO2数值异常: %d ppm", eco2_ppm);
+              data_valid = false;
+            }
+            if (temperature_c < -40.0 || temperature_c > 85.0) {  // 温度范围检查
+              ESP_LOGW("21voc_uart", "❌ 温度数值异常: %.1f°C", temperature_c);
+              data_valid = false;
+            }
+            if (humidity_rh < 0.0 || humidity_rh > 100.0) {  // 湿度范围检查
+              ESP_LOGW("21voc_uart", "❌ 湿度数值异常: %.1f%%", humidity_rh);
+              data_valid = false;
+            }
+
+            if (data_valid) {
+              ESP_LOGI("21voc_uart", "📊 === 21VOC传感器读数 ===");
+              ESP_LOGI("21voc_uart", "⏰ 时间戳: %lu ms", millis());
+
+              // 发布VOC数据
+              if (id(last_voc) == -999.0 || abs((float)voc_ugm3 - id(last_voc)) >= 1.0) {
+                ESP_LOGI("21voc_uart", "✅ 发布VOC: %d μg/m³", voc_ugm3);
+                id(sensor_voc).publish_state(voc_ugm3);
+                id(last_voc) = voc_ugm3;
+              }
+
+              // 发布甲醛数据
+              if (id(last_ch2o) == -999.0 || abs((float)ch2o_ugm3 - id(last_ch2o)) >= 1.0) {
+                ESP_LOGI("21voc_uart", "✅ 发布甲醛: %d μg/m³", ch2o_ugm3);
+                id(sensor_ch2o).publish_state(ch2o_ugm3);
+                id(last_ch2o) = ch2o_ugm3;
+              }
+
+              // 发布eCO2数据
+              if (id(last_eco2) == -999.0 || abs((float)eco2_ppm - id(last_eco2)) >= 1.0) {
+                ESP_LOGI("21voc_uart", "✅ 发布eCO2: %d ppm", eco2_ppm);
+                id(sensor_eco2).publish_state(eco2_ppm);
+                id(last_eco2) = eco2_ppm;
+              }
+
+              // 发布温度数据
+              if (id(last_temperature) == -999.0 || abs(temperature_c - id(last_temperature)) >= 0.1) {
+                ESP_LOGI("21voc_uart", "✅ 发布温度: %.1f°C", temperature_c);
+                id(sensor_temperature).publish_state(temperature_c);
+                id(last_temperature) = temperature_c;
+              }
+
+              // 发布湿度数据
+              if (id(last_humidity) == -999.0 || abs(humidity_rh - id(last_humidity)) >= 0.1) {
+                ESP_LOGI("21voc_uart", "✅ 发布湿度: %.1f%%", humidity_rh);
+                id(sensor_humidity).publish_state(humidity_rh);
+                id(last_humidity) = humidity_rh;
+              }
+
+              // 空气质量评估逻辑 (基于VOC和甲醛)
+              std::string air_quality = "优秀";
+              int quality_score = 0;
+
+              // VOC评估 (μg/m³) - 根据WHO标准
+              if (voc_ugm3 <= 300) {
+                quality_score += 1; // 优秀
+              } else if (voc_ugm3 <= 600) {
+                quality_score += 2; // 良好
+              } else if (voc_ugm3 <= 1000) {
+                quality_score += 3; // 中等
+              } else if (voc_ugm3 <= 3000) {
+                quality_score += 4; // 较差
+              } else {
+                quality_score += 5; // 很差
+              }
+
+              // 甲醛评估 (μg/m³) - 根据WHO标准
+              if (ch2o_ugm3 <= 80) {
+                quality_score += 1; // 优秀
+              } else if (ch2o_ugm3 <= 100) {
+                quality_score += 2; // 良好
+              } else if (ch2o_ugm3 <= 300) {
+                quality_score += 3; // 中等
+              } else if (ch2o_ugm3 <= 500) {
+                quality_score += 4; // 较差
+              } else {
+                quality_score += 5; // 很差
+              }
+
+              // 根据综合评分确定空气质量等级 (总分2-10)
+              if (quality_score <= 3) {
+                air_quality = "优秀";
+              } else if (quality_score <= 5) {
+                air_quality = "良好";
+              } else if (quality_score <= 7) {
+                air_quality = "中等";
+              } else if (quality_score <= 9) {
+                air_quality = "较差";
+              } else {
+                air_quality = "很差";
+              }
+
+              ESP_LOGI("21voc_uart", "🌟 空气质量评估: %s (评分: %d)", air_quality.c_str(), quality_score);
+              ESP_LOGI("21voc_uart", "   VOC: %d μg/m³, 甲醛: %d μg/m³", voc_ugm3, ch2o_ugm3);
+
+              // 发布空气质量评估
+              if (id(last_air_quality) != air_quality) {
+                ESP_LOGI("21voc_uart", "✅ 发布空气质量: %s", air_quality.c_str());
+                id(air_quality_status).publish_state(air_quality);
+                id(last_air_quality) = air_quality;
+              }
+
+              ESP_LOGI("21voc_uart", "===============================");
+              ESP_LOGI("21voc_uart", "✅ 数据读取和处理完成");
+            } else {
+              ESP_LOGW("21voc_uart", "⚠️ 接收到数据但验证失败");
+            }
+          } else {
+            ESP_LOGW("21voc_uart", "⏰ 超时，未接收到数据");
+          }
+
+# 文本传感器
+text_sensor:
+  # WiFi信息
+  - platform: wifi_info
+    mac_address:
+      name: "Mac Address"
+
+  # 空气质量评估
+  - platform: template
+    name: "Air Quality Assessment"
+    id: air_quality_status
+    icon: "mdi:air-filter"
+
+# 二进制传感器
+binary_sensor:
+  # 设备状态
+  - platform: status
+    name: "Status"
+
+# 开关控制
+switch:
+  # 重启开关
+  - platform: restart
+    name: "Restart"
+
+# 日志配置
+logger:
+  baud_rate: 115200
+  level: INFO  # 显示传感器数据
+  logs:
+    21voc_uart: INFO    # 显示21VOC传感器数据
+    uart_debug: WARN    # 减少UART调试信息
+    uart: WARN          # 减少UART日志
+    wifi: WARN          # 减少WiFi日志
+    api: WARN           # 减少API日志
+    ota: WARN           # 减少OTA日志
+    web_server: WARN    # 减少Web服务器日志
+
+# OTA更新
+ota:
+  platform: esphome
+
+# API配置
+api:
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
