@@ -1,11 +1,9 @@
-packages:
-  base: !include packages/common.yaml
 esphome:
-  name: door-opener-esp32c3
+  name: door-opener-esp32c6
   friendly_name: "门锁控制器"
   
 esp32:
-  board: airm2m_core_esp32c3
+  board: esp32-c6-devkitc-1
   framework:
     type: esp-idf
 

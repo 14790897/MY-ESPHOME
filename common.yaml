@@ -1,0 +1,19 @@
+# 通用 ESPHome 配置（UTF-8）
+# 说明：仅放置可安全复用的通用条目；
+# 不包含会与设备专属配置冲突的内容（如 time/deep_sleep 等）。
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # 可选低功耗/快速连接设置（按需取消注释）
+  # power_save_mode: NONE
+  # fast_connect: false
+
+api:
+
+ota:
+  platform: esphome
+
+logger:
+  level: INFO
+
