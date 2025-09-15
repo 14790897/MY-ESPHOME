@@ -1,5 +1,6 @@
 packages:
-  base: !include packages/common.yaml
+  base: !include ../../common.yaml
+  
 esphome:
   name: door-opener-esp32c3
   friendly_name: "门锁控制器"
@@ -7,20 +8,7 @@ esphome:
 esp32:
   board: airm2m_core_esp32c3
   framework:
-    type: esp-idf
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  # Low power WiFi settings
-  # power_save_mode: NONE  # Disable power saving mode for improved connection stability
-  # # Fast connect to reduce wake-up time
-  # fast_connect: false
-
-api:
-
-ota:
-  platform: esphome
+    type: arduino  # 改为arduino框架，更稳定  蓝牙需要 esp-idf节省存储空间
 
 time:
   - platform: homeassistant
