@@ -1,3 +1,4 @@
+# ens160的add(address)引脚需要接地
 esphome:
   name: ens160-node
 
