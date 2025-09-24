@@ -1,0 +1,64 @@
+esphome:
+  name: bmp-aht-esp32c3-espnow
+  friendly_name: ESP-NOW Env Sender (AHT20 + BMP280)
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+  logs:
+    espnow: DEBUG
+
+wifi:
+  ap:
+    ssid: "ESPNow-Sensor"
+    password: "espnow1234"
+  power_save_mode: none
+
+ota:
+  platform: esphome
+
+i2c:
+  sda: 4
+  scl: 5
+  scan: true
+  id: bus_a
+
+
+espnow:
+  id: espnow_client
+  channel: 1
+  peers:
+    - !secret espnow_hub_mac
+
+sensor:
+  # AHT20 Temperature and Humidity Sensor (Fixed address 0x38)
+  - platform: aht10
+    temperature:
+      name: "AHT20 Temperature"
+      id: aht20_temperature
+    humidity:
+      name: "AHT20 Humidity"
+      id: aht20_humidity
+    update_interval: 300s
+
+  # BMP280 Pressure Sensor
+  - platform: bmp280_i2c
+    temperature:
+      name: "BMP280 Temperature"
+      id: bmp280_temperature
+    pressure:
+      name: "BMP280 Pressure"
+      id: bmp280_pressure
+    address: 0x77
+    i2c_id: bus_a
+    update_interval: 300s
+
+
+external_components:
+  - source:
+      type: local
+      path: ../../common_components

@@ -1,0 +1,6 @@
+{
+  "terminal.integrated.env.windows": {
+    "ESPHOME_CACHE_DIR":"C:\\git-program\\Embedded\\MY-ESPHOME\\.esphome",
+    "Path": "C:\\Users\\13963\\.platformio\\penv\\Scripts;${env:Path}"
+  }
+}
