@@ -1,0 +1,199 @@
+# ========= ILI9341 显示屏（SPI）- ESP-NOW版本 =========
+
+spi:
+  clk_pin: GPIO2
+  mosi_pin: GPIO3
+#   miso_pin: GPIO3 # 如果没接，可以删掉
+font:
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
+    id: font_xs
+    size: 12
+    bpp: 1
+    glyphs: !include ../../glyphs.yaml
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
+    id: font_s
+    size: 16
+    bpp: 1
+    glyphs: !include ../../glyphs.yaml
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
+    id: font_m
+    size: 20
+    bpp: 2
+    glyphs: !include ../../glyphs.yaml
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
+    id: font_l
+    size: 24
+    bpp: 2
+    glyphs: !include ../../glyphs.yaml
+
+
+output:
+  - platform: ledc
+    pin: GPIO21
+    id: lcd_bl_out
+    frequency: 5000 Hz      # 可选，常用 1k~20kHz，避开可闻频率
+    # channel: 0            # 可选；不写由 ESPHome 自动分配
+  - platform: gpio
+    id: status_led_pin
+    pin: GPIO8
+    inverted: true
+
+light:
+  - platform: monochromatic
+    name: "LCD Backlight"
+    id: lcd_backlight
+    output: lcd_bl_out
+    default_transition_length: 0.5s
+    restore_mode: RESTORE_DEFAULT_ON
+    effects:
+      - pulse:
+          name: "Slow Pulse"
+          transition_length: 2s
+          update_interval: 2s
+      - pulse:
+          name: "Fast Pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+
+display:
+  - platform: ili9xxx
+    model: TFT_2.4
+    cs_pin: GPIO7
+    dc_pin: GPIO5
+    reset_pin: GPIO6
+    rotation: 0      # 可根据需要调整：0, 90, 180, 270
+    invert_colors: false
+    update_interval: 500ms   # 刷新频率，可调节
+    lambda: |-
+      it.fill(Color::BLACK);
+      
+      // 获取显示器尺寸
+      int screen_width = it.get_width();
+      int screen_height = it.get_height();
+      
+      // 自适应字体和间距
+      auto title_font = id(font_l);
+      auto section_font = id(font_s);
+      auto data_font = id(font_m);
+      auto time_font = id(font_xs);
+      
+      int line_spacing = 18;
+      int section_spacing = 25;
+      int margin = 8;
+      
+      // 如果屏幕较小，调整字体和间距
+      if (screen_height < 240) {
+        title_font = id(font_m);
+        data_font = id(font_s);
+        section_font = id(font_xs);
+        line_spacing = 15;
+        section_spacing = 20;
+        margin = 5;
+      }
+      
+      int y_pos = margin;
+      
+      // 显示标题
+      it.print(margin, y_pos, title_font, Color::WHITE, "环境监测");
+      y_pos += section_spacing + 5;
+      
+      // 显示连接状态
+      unsigned long now = millis();
+      bool data_fresh = (now - id(last_update_time)) < 60000; // 60秒内有数据视为新鲜
+      
+      if (data_fresh) {
+        it.print(margin, y_pos, section_font, Color(0, 255, 0), "ESP-NOW: 在线");
+      } else {
+        it.print(margin, y_pos, section_font, Color(255, 0, 0), "ESP-NOW: 离线");
+      }
+      y_pos += line_spacing + 5;
+      
+      // 显示温湿度传感器数据
+      it.print(margin, y_pos, section_font, Color(200, 200, 200), "传感器数据:");
+      y_pos += line_spacing;
+      
+      // 显示温度 (理想范围: 18-26°C)
+      if (id(espnow_temperature).has_state()) {
+        auto temp = id(espnow_temperature).state;
+        Color temp_color;
+        if (temp < 16 || temp > 30) {
+          temp_color = Color(255, 0, 0);  // 红色 - 超标
+        } else if (temp < 18 || temp > 26) {
+          temp_color = Color(255, 255, 0);  // 黄色 - 适中
+        } else {
+          temp_color = Color(0, 255, 0);  // 绿色 - 很好
+        }
+        it.printf(margin + 10, y_pos, data_font, temp_color, "温度: %.1f°C", temp);
+      } else {
+        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "温度: --");
+      }
+      y_pos += line_spacing;
+      
+      // 显示湿度 (理想范围: 40-60%)
+      if (id(espnow_humidity).has_state()) {
+        auto humidity = id(espnow_humidity).state;
+        Color humidity_color;
+        if (humidity < 30 || humidity > 70) {
+          humidity_color = Color(255, 0, 0);  // 红色 - 超标
+        } else if (humidity < 40 || humidity > 60) {
+          humidity_color = Color(255, 255, 0);  // 黄色 - 适中
+        } else {
+          humidity_color = Color(0, 255, 0);  // 绿色 - 很好
+        }
+        it.printf(margin + 10, y_pos, data_font, humidity_color, "湿度: %.1f%%", humidity);
+      } else {
+        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "湿度: --");
+      }
+      y_pos += line_spacing;
+      
+      // 显示气压
+      if (id(espnow_pressure).has_state()) {
+        auto pressure = id(espnow_pressure).state;
+        Color pressure_color;
+        if (pressure < 950 || pressure > 1050) {
+          pressure_color = Color(255, 255, 0);  // 黄色 - 异常
+        } else {
+          pressure_color = Color(0, 255, 255);  // 青色 - 正常
+        }
+        it.printf(margin + 10, y_pos, data_font, pressure_color, "气压: %.1fhPa", pressure);
+      } else {
+        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "气压: --");
+      }
+      y_pos += section_spacing;
+      
+      // 显示数据时间戳
+      if (data_fresh) {
+        unsigned long seconds_ago = (now - id(last_update_time)) / 1000;
+        it.printf(margin, y_pos, time_font, Color(200, 200, 200), "更新: %lu秒前", seconds_ago);
+      } else {
+        it.print(margin, y_pos, time_font, Color(255, 0, 0), "数据已过期");
+      }
+      
+      // 显示当前时间 - 自适应位置到底部
+      int time_y = screen_height - 15;
+      it.strftime(margin, time_y, time_font, Color(255, 255, 0), "%m/%d %H:%M", id(ha_time).now());
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: Asia/Shanghai
+
+# 心跳指示器
+interval:
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            lambda: 'return (millis() - id(last_update_time)) < 60000;'  # 数据新鲜度检查
+          then:
+            - output.turn_on: status_led_pin
+            - delay: 100ms
+            - output.turn_off: status_led_pin
+          else:
+            - output.turn_on: status_led_pin
+            - delay: 50ms
+            - output.turn_off: status_led_pin
+            - delay: 50ms
+            - output.turn_on: status_led_pin
+            - delay: 50ms
+            - output.turn_off: status_led_pin

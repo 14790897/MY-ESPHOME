@@ -61,6 +61,8 @@ ESPHome设备配置文件按功能分类存放
 |---------|----------|----------|
 | `display9341.yaml` | ILI9341显示屏 | TFT彩色显示屏 |
 | `glyphs.yaml` | 字形配置 | 显示屏字体和图标 |
+| `esp32s3-n8.yaml` | ESP32-S3显示面板(WiFi版) | 从HA获取传感器数据显示 |
+| `envpanel-espnow.yaml` | **ESP32-S3显示面板(ESP-NOW版)** ⭐ | 通过ESP-NOW接收传感器数据 |
 
 #### 🗄️ `/configs/legacy/` - 旧版配置
 不再活跃维护的旧版本配置
@@ -104,6 +106,8 @@ Web界面和其他静态文件
   - ESP32 框架兼容性问题
   - GPIO 引脚配置指南
   - 环境变量配置方法
+- `PLATFORMIO_VERSION_MANAGEMENT.md` - PlatformIO 平台版本管理指南
+
 - `sht30-uart/` - SHT30 UART传感器技术文档
 
 ## 🚀 使用方法

@@ -5,26 +5,26 @@ spi:
   mosi_pin: GPIO2
 #   miso_pin: GPIO3 # 如果没接，可以删掉
 font:
-  - file: "static/NotoSansSC-Regular.ttf"
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
     id: font_xs
     size: 12
     bpp: 1
-    glyphs: !include glyphs.yaml
-  - file: "static/NotoSansSC-Regular.ttf"
+    glyphs: !include ../../glyphs.yaml
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
     id: font_s
     size: 16
     bpp: 1
-    glyphs: !include glyphs.yaml
-  - file: "static/NotoSansSC-Regular.ttf"
+    glyphs: !include ../../glyphs.yaml
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
     id: font_m
     size: 20
     bpp: 2
-    glyphs: !include glyphs.yaml
-  - file: "static/NotoSansSC-Regular.ttf"
+    glyphs: !include ../../glyphs.yaml
+  - file: "../../resources/static/NotoSansSC-Regular.ttf"
     id: font_l
     size: 24
     bpp: 2
-    glyphs: !include glyphs.yaml
+    glyphs: !include ../../glyphs.yaml
 
 
 output:

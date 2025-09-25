@@ -1,0 +1,6 @@
+# glyphs.yaml  — 必须是 UTF-8 无 BOM
+- "环境监测数据温湿度空气质量传感器甲醛二氧化碳时间天预报室外"
+- "年月日分秒"
+- "°³："
+# ASCII 范围
+- " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
