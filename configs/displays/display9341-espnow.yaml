@@ -1,8 +1,8 @@
 # ========= ILI9341 显示屏（SPI）- ESP-NOW版本 =========
 
 spi:
-  clk_pin: GPIO5
-  mosi_pin: GPIO4
+  clk_pin: GPIO2
+  mosi_pin: GPIO3
 
 font:
   - file: "../../resources/static/NotoSansSC-Regular.ttf"
@@ -47,12 +47,12 @@ light:
 display:
   - platform: ili9xxx
     model: TFT 2.4
-    cs_pin: GPIO10
-    dc_pin: GPIO7
-    reset_pin: GPIO6
-    rotation: 0 # 可根据需要调整：0, 90, 180, 270
+    cs_pin: GPIO7
+    dc_pin: GPIO6
+    reset_pin: GPIO10
+    data_rate: 10MHz
+    rotation: 0 
     invert_colors: false
-    update_interval: 500ms # 刷新频率，可调节
     lambda: |-
       it.fill(Color::BLACK);
       // 获取显示器尺寸
