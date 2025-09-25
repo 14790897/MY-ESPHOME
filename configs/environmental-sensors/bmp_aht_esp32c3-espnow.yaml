@@ -1,6 +1,6 @@
 esphome:
-  name: bmp-aht-esp32c3-espnow
-  friendly_name: ESP-NOW Env Sender (AHT20 + BMP280)
+  name: bmp-aht-esp32c3-espnow-fixed
+  friendly_name: ESP-NOW Env Sender Fixed (AHT20 + BMP280)
 
 esp32:
   board: airm2m_core_esp32c3
@@ -12,14 +12,8 @@ logger:
   logs:
     espnow: DEBUG
 
-# WiFi组件完全移除！
-# 根据ESPHome源码analysis：ESP-NOW会自动管理WiFi接口
-# 当WiFi组件不存在时，ESP-NOW在enable_()中会自动:
-# - esp_wifi_set_mode(WIFI_MODE_STA) 
-# - esp_wifi_set_storage(WIFI_STORAGE_RAM)
-# - esp_wifi_set_ps(WIFI_PS_NONE)
-# - esp_wifi_start() 和 esp_wifi_disconnect()
-# 这样避免了WiFi组件与ESP-NOW的接口冲突
+# Network组件 - ESP-NOW需要网络依赖
+network:
 
 # OTA也移除，避免额外复杂性
 # ota:
@@ -46,16 +40,13 @@ globals:
     restore_value: false
     initial_value: '0.0'
 
-
+# ESP-NOW配置 - 基于源码的标准格式
 espnow:
-  id: espnow_client
-  # 移除channel设置，让系统自动使用WiFi通道
-  # channel: 1  
-  # 使用auto_add_peer来自动添加接收端
+  id: espnow_component
+  enable_on_boot: true
+  channel: 1  # WiFi信道，必须与接收端一致
+  # 自动添加peer模式
   auto_add_peer: true
-  # 暂时移除peers配置，使用纯广播模式
-  # peers:
-  #   - !secret espnow_hub_mac
 
 # 定时发送数据的间隔配置
 interval:
@@ -92,6 +83,7 @@ interval:
           id(press_for_send) = press;
       # 使用官方推荐的espnow.broadcast action
       - espnow.broadcast:
+          id: espnow_component
           data: !lambda |-
             // 打包数据：温度(4字节) + 湿度(4字节) + 气压(4字节)
             std::vector<uint8_t> data(12);
