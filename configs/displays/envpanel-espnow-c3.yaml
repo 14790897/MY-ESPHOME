@@ -1,0 +1,146 @@
+# ========= ESP-NOW接收器 + 显示面板（ESP32-C3优化版）=========
+substitutions:
+  device_name: "envpanel-espnow-c3"
+  friendly_name: "ESP-NOW-C3"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# 启用日志（减少日志级别节省内存）
+logger:
+  level: WARN
+
+# 启用 Home Assistant API
+api:
+
+# 启用WiFi（接收端需要连接Home Assistant）
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+
+captive_portal:
+
+# OTA更新
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# 启用网络组件
+network:
+
+# ESP-NOW配置
+espnow:
+  id: espnow_component
+  enable_on_boot: true
+  channel: 1
+  auto_add_peer: true
+  on_receive:
+    then:
+      - lambda: |-
+          ESP_LOGD("espnow", "Received ESP-NOW data");
+          
+          // 解析接收到的数据 (固定12字节数据包)
+          // 温度(4字节) + 湿度(4字节) + 气压(4字节)
+          float temp, hum, press;
+          memcpy(&temp, data, 4);
+          memcpy(&hum, data + 4, 4);
+          memcpy(&press, data + 8, 4);
+          
+          // 数据有效性检查
+          if (temp > -50 && temp < 100 && 
+              hum >= 0 && hum <= 100 && 
+              press > 800 && press < 1200) {
+            
+            // 更新全局变量
+            id(received_temperature) = temp;
+            id(received_humidity) = hum;
+            id(received_pressure) = press;
+            id(last_update_time) = millis();
+            
+            // 发布到传感器
+            id(espnow_temperature).publish_state(temp);
+            id(espnow_humidity).publish_state(hum);
+            id(espnow_pressure).publish_state(press);
+            
+            ESP_LOGI("espnow", "Updated: T=%.1f°C, H=%.1f%%, P=%.1fhPa", temp, hum, press);
+          }
+
+# 全局变量（减少变量数量）
+globals:
+  - id: received_temperature
+    type: float
+    initial_value: '0.0'
+  - id: received_humidity
+    type: float
+    initial_value: '0.0'
+  - id: received_pressure
+    type: float
+    initial_value: '0.0'
+  - id: last_update_time
+    type: unsigned long
+    initial_value: '0'
+
+# 引入优化后的显示配置
+packages:
+  display9341: !include ../displays/display9341-espnow-c3.yaml
+
+# 传感器（简化配置）
+sensor:
+  - platform: template
+    name: "ESP-NOW Temperature"
+    id: espnow_temperature
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    update_interval: never  # 仅通过ESP-NOW回调更新
+    
+  - platform: template
+    name: "ESP-NOW Humidity"
+    id: espnow_humidity
+    unit_of_measurement: "%"
+    device_class: "humidity"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    update_interval: never
+    
+  - platform: template
+    name: "ESP-NOW Pressure"
+    id: espnow_pressure
+    unit_of_measurement: "hPa"
+    device_class: "atmospheric_pressure"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    update_interval: never
+
+# 状态指示器
+binary_sensor:
+  - platform: template
+    name: "ESP-NOW Data Fresh"
+    id: data_fresh
+    lambda: |-
+      if (id(last_update_time) == 0) return false;
+      return (millis() - id(last_update_time)) < 600000;  // 10 minutes timeout
+    filters:
+      - delayed_on: 1s
+      - delayed_off: 5s
+
+# 状态文本
+text_sensor:
+  - platform: template
+    name: "ESP-NOW Status"
+    id: espnow_status
+    lambda: |-
+      if (id(last_update_time) == 0) return std::string("等待数据");
+      unsigned long age = (millis() - id(last_update_time)) / 1000;
+      if (age < 60) return std::string("数据新鲜");
+      if (age < 600) return std::string("数据较旧 " + to_string(age) + "秒");
+      return std::string("数据过期");
+    update_interval: 10s  # 降低更新频率
