@@ -12,11 +12,13 @@ esp32:
   framework:
     type: arduino
 
-# 启用日志（减少日志级别节省内存）
 logger:
-  level: WARN
+  level: DEBUG
+  logs:
+    display: DEBUG
+    ili9xxx: DEBUG
+    spi: DEBUG
 
-# 启用 Home Assistant API
 api:
 
 # 启用WiFi（接收端需要连接Home Assistant）
@@ -27,7 +29,6 @@ wifi:
 
 captive_portal:
 
-# OTA更新
 ota:
   - platform: esphome
     password: !secret ota_password
@@ -41,7 +42,7 @@ espnow:
   enable_on_boot: true
   channel: 1
   auto_add_peer: true
-  on_receive:
+  on_broadcast:
     then:
       - lambda: |-
           ESP_LOGD("espnow", "Received ESP-NOW data");
