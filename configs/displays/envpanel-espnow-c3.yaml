@@ -14,10 +14,7 @@ esp32:
 
 logger:
   level: DEBUG
-  logs:
-    display: DEBUG
-    ili9xxx: DEBUG
-    spi: DEBUG
+
 
 api:
 
@@ -27,7 +24,7 @@ wifi:
   password: !secret wifi_password
 
 
-captive_portal:
+# captive_portal:
 
 ota:
   - platform: esphome
@@ -90,7 +87,7 @@ globals:
 
 # 引入优化后的显示配置
 packages:
-  display9341: !include ../displays/display9341-espnow-c3.yaml
+  display9341: !include ../displays/display9341-espnow.yaml
 
 # 传感器（简化配置）
 sensor:
