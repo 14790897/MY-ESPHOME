@@ -45,14 +45,15 @@ light:
           update_interval: 0.5s
 
 display:
-  - platform: ili9xxx
-    model: TFT 2.4
+  - platform: mipi_spi
+    model: ILI9341
     cs_pin: GPIO7
     dc_pin: GPIO6
     reset_pin: GPIO10
     data_rate: 10MHz
-    rotation: 0 
+    rotation: 0
     invert_colors: false
+    dimensions: 240x320
     lambda: |-
       it.fill(Color::BLACK);
       // 获取显示器尺寸

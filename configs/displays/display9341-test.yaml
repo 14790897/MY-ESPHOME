@@ -1,0 +1,38 @@
+esphome:
+  name: c3-ili9341-test
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: "test"
+  password: "test12345678"
+
+api:
+
+spi:
+  id: bus_a
+  clk_pin: GPIO2
+  mosi_pin: GPIO3
+
+display:
+  - platform: mipi_spi
+    spi_id: bus_a
+    model: ILI9341
+    cs_pin: GPIO7
+    dc_pin: GPIO6
+    reset_pin: GPIO10
+    data_rate: 10MHz
+    rotation: 0
+    invert_colors: false
+    dimensions: 240x320
+    lambda: |-
+      it.fill(Color(0, 0, 64));               // Deep blue background
+      it.filled_rectangle(10, 10, 100, 50, Color(255, 255, 255));  // White
+      it.filled_rectangle(20, 70, 60, 30, Color(255, 0, 0));       // Red
+      it.filled_rectangle(90, 120, 80, 40, Color(0, 255, 0));      // Green
