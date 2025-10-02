@@ -6,20 +6,10 @@ spi:
 
 font:
   - file: "../../resources/static/NotoSansSC-Regular.ttf"
-    id: font_xs
-    size: 12
-    bpp: 1
-    glyphs: "0123456789.%°Cmg/hPa³TVO甲醛环境监测传感器数据在线离温湿气压更新秒前已有超时:- p"
-  - file: "../../resources/static/NotoSansSC-Regular.ttf"
-    id: font_s
+    id: font_main
     size: 16
     bpp: 1
-    glyphs: "环境监测ESP-NOW在线离传感器数据温湿气压甲醛TVC2更新秒前已有超时: pm"
-  - file: "../../resources/static/NotoSansSC-Regular.ttf"
-    id: font_m
-    size: 18
-    bpp: 1
-    glyphs: "0123456789.%°Cmg/hPa³TVO甲醛温湿气压: p"
+    glyphs: "0123456789.%°Cmg/hPa³TVO甲醛环境监测传感器数据在线离温湿气压更新秒前已有超时度:- slESNW"
 
 output:
   - platform: ledc
@@ -58,19 +48,19 @@ display:
       it.fill(Color::BLACK);
       const int screen_height = it.get_height();
 
-      auto title_font = id(font_m);
-      auto section_font = id(font_s);
-      auto data_font = id(font_m);
-      auto time_font = id(font_xs);
+      auto title_font = id(font_main);
+      auto section_font = id(font_main);
+      auto data_font = id(font_main);
+      auto time_font = id(font_main);
 
       int line_spacing = 22;
       int section_spacing = 28;
       int margin = 12;
 
       if (screen_height < 240) {
-        title_font = id(font_m);
-        data_font = id(font_s);
-        section_font = id(font_xs);
+        title_font = id(font_main);
+        data_font = id(font_main);
+        section_font = id(font_main);
         line_spacing = 18;
         section_spacing = 22;
         margin = 8;
