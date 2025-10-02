@@ -76,8 +76,10 @@ script:
           then:
             - espnow.broadcast:
                 id: espnow_component
+                data: !lambda |-
+                    const std::string &payload = id(last_espnow_payload);
+                    return std::vector<uint8_t>(payload.begin(), payload.end());
 
-                data: !lambda |\n                  const std::string &payload = id(last_espnow_payload);\n                  return std::vector<uint8_t>(payload.begin(), payload.end());
 
 sensor:
   # VOC-CO2-HCHO传感器数据
