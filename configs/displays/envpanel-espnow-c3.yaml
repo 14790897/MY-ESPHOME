@@ -1,4 +1,4 @@
-# ========= ESP-NOW接收器 + 显示面板（ESP32-C3优化版）=========
+﻿# ========= ESP-NOW接收器 + 显示面板（ESP32-C3定制版）=========
 substitutions:
   device_name: "envpanel-espnow-c3"
   friendly_name: "ESP-NOW-C3"
@@ -15,25 +15,18 @@ esp32:
 logger:
   level: DEBUG
 
-
 api:
 
-# 启用WiFi（接收端需要连接Home Assistant）
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-
-# captive_portal:
 
 ota:
   - platform: esphome
     password: !secret ota_password
 
-# 启用网络组件
 network:
 
-# ESP-NOW配置
 espnow:
   id: espnow_component
   enable_on_boot: true
@@ -43,34 +36,83 @@ espnow:
     then:
       - lambda: |-
           ESP_LOGD("espnow", "Received ESP-NOW data");
-          
-          // 解析接收到的数据 (固定12字节数据包)
-          // 温度(4字节) + 湿度(4字节) + 气压(4字节)
-          float temp, hum, press;
+
+          if (size < 12) {
+            ESP_LOGW("espnow", "Payload too short: %u bytes", size);
+            return;
+          }
+
+          float temp = NAN;
+          float hum = NAN;
+          float press = NAN;
+          float tvoc = NAN;
+          float formaldehyde = NAN;
+          float co2 = NAN;
+
           memcpy(&temp, data, 4);
           memcpy(&hum, data + 4, 4);
           memcpy(&press, data + 8, 4);
-          
-          // 数据有效性检查
-          if (temp > -50 && temp < 100 && 
-              hum >= 0 && hum <= 100 && 
-              press > 800 && press < 1200) {
-            
-            // 更新全局变量
-            id(received_temperature) = temp;
-            id(received_humidity) = hum;
-            id(received_pressure) = press;
-            id(last_update_time) = millis();
-            
-            // 发布到传感器
-            id(espnow_temperature).publish_state(temp);
-            id(espnow_humidity).publish_state(hum);
-            id(espnow_pressure).publish_state(press);
-            
-            ESP_LOGI("espnow", "Updated: T=%.1f°C, H=%.1f%%, P=%.1fhPa", temp, hum, press);
+
+          if (size >= 24) {
+            memcpy(&tvoc, data + 12, 4);
+            memcpy(&formaldehyde, data + 16, 4);
+            memcpy(&co2, data + 20, 4);
+          } else if (size > 12) {
+            ESP_LOGW("espnow", "Unsupported payload length: %u bytes", size);
           }
 
-# 全局变量（减少变量数量）
+          const bool base_valid =
+              (temp > -50.0f && temp < 100.0f) &&
+              (hum >= 0.0f && hum <= 100.0f) &&
+              (press > 800.0f && press < 1200.0f);
+
+          if (!base_valid) {
+            ESP_LOGW("espnow", "Base payload validation failed: T=%.2f, H=%.2f, P=%.2f", temp, hum, press);
+            return;
+          }
+
+          const bool tvoc_valid = !isnan(tvoc) && tvoc >= 0.0f && tvoc < 10.0f;
+          const bool hcho_valid = !isnan(formaldehyde) && formaldehyde >= 0.0f && formaldehyde < 1.5f;
+          const bool co2_valid = !isnan(co2) && co2 >= 200.0f && co2 < 10000.0f;
+
+          id(received_temperature) = temp;
+          id(received_humidity) = hum;
+          id(received_pressure) = press;
+          if (tvoc_valid) {
+            id(received_tvoc) = tvoc;
+          }
+          if (hcho_valid) {
+            id(received_formaldehyde) = formaldehyde;
+          }
+          if (co2_valid) {
+            id(received_co2) = co2;
+          }
+          id(last_update_time) = millis();
+
+          id(espnow_temperature).publish_state(temp);
+          id(espnow_humidity).publish_state(hum);
+          id(espnow_pressure).publish_state(press);
+          if (tvoc_valid) {
+            id(espnow_tvoc).publish_state(tvoc);
+          }
+          if (hcho_valid) {
+            id(espnow_formaldehyde).publish_state(formaldehyde);
+          }
+          if (co2_valid) {
+            id(espnow_co2).publish_state(co2);
+          }
+
+          ESP_LOGI("espnow", "Updated: T=%.1f°C, H=%.1f%%, P=%.1fhPa", temp, hum, press);
+          if (tvoc_valid) {
+            ESP_LOGI("espnow", "TVOC=%.3f mg/m³", tvoc);
+          }
+          if (hcho_valid) {
+            ESP_LOGI("espnow", "甲醛=%.3f mg/m³", formaldehyde);
+          }
+          if (co2_valid) {
+            ESP_LOGI("espnow", "CO₂=%.0f ppm", co2);
+          }
+
 globals:
   - id: received_temperature
     type: float
@@ -81,56 +123,87 @@ globals:
   - id: received_pressure
     type: float
     initial_value: '0.0'
+  - id: received_tvoc
+    type: float
+    initial_value: '0.0'
+  - id: received_formaldehyde
+    type: float
+    initial_value: '0.0'
+  - id: received_co2
+    type: float
+    initial_value: '0.0'
   - id: last_update_time
     type: unsigned long
     initial_value: '0'
 
-# 引入优化后的显示配置
 packages:
   display9341: !include ../displays/display9341-espnow.yaml
 
-# 传感器（简化配置）
 sensor:
   - platform: template
     name: "ESP-NOW Temperature"
     id: espnow_temperature
     unit_of_measurement: "°C"
-    device_class: "temperature"
-    state_class: "measurement"
+    device_class: temperature
+    state_class: measurement
     accuracy_decimals: 1
-    update_interval: never  # 仅通过ESP-NOW回调更新
-    
+    update_interval: never
+
   - platform: template
     name: "ESP-NOW Humidity"
     id: espnow_humidity
     unit_of_measurement: "%"
-    device_class: "humidity"
-    state_class: "measurement"
+    device_class: humidity
+    state_class: measurement
     accuracy_decimals: 1
     update_interval: never
-    
+
   - platform: template
     name: "ESP-NOW Pressure"
     id: espnow_pressure
     unit_of_measurement: "hPa"
-    device_class: "atmospheric_pressure"
-    state_class: "measurement"
+    device_class: atmospheric_pressure
+    state_class: measurement
     accuracy_decimals: 1
     update_interval: never
 
-# 状态指示器
+  - platform: template
+    name: "ESP-NOW TVOC"
+    id: espnow_tvoc
+    unit_of_measurement: "mg/m³"
+    device_class: volatile_organic_compounds
+    state_class: measurement
+    accuracy_decimals: 3
+    update_interval: never
+
+  - platform: template
+    name: "ESP-NOW 甲醛"
+    id: espnow_formaldehyde
+    unit_of_measurement: "mg/m³"
+    state_class: measurement
+    accuracy_decimals: 3
+    update_interval: never
+
+  - platform: template
+    name: "ESP-NOW CO₂"
+    id: espnow_co2
+    unit_of_measurement: "ppm"
+    device_class: carbon_dioxide
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+
 binary_sensor:
   - platform: template
     name: "ESP-NOW Data Fresh"
     id: data_fresh
     lambda: |-
       if (id(last_update_time) == 0) return false;
-      return (millis() - id(last_update_time)) < 600000;  // 10 minutes timeout
+      return (millis() - id(last_update_time)) < 600000;
     filters:
       - delayed_on: 1s
       - delayed_off: 5s
 
-# 状态文本
 text_sensor:
   - platform: template
     name: "ESP-NOW Status"
@@ -138,7 +211,10 @@ text_sensor:
     lambda: |-
       if (id(last_update_time) == 0) return std::string("等待数据");
       unsigned long age = (millis() - id(last_update_time)) / 1000;
-      if (age < 60) return std::string("数据新鲜");
-      if (age < 600) return std::string("数据较旧 " + to_string(age) + "秒");
-      return std::string("数据过期");
-    update_interval: 10s  # 降低更新频率
+      if (age < 60) return std::string("数据最新");
+      if (age < 600) return std::string("数据已有 " + to_string(age) + " 秒");
+      return std::string("数据超时");
+    update_interval: 10s
+
+
+
