@@ -183,7 +183,7 @@ display:
         it.print(margin, y_pos, time_font, Color(255, 0, 0), "数据超时");
       }
 
-      const int time_y = screen_height - 15;
+      const int time_y = screen_height - 35;
       it.strftime(margin, time_y, time_font, Color(255, 255, 0), "%m/%d %H:%M", id(ha_time).now());
 
 time:

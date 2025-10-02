@@ -1,3 +1,4 @@
+
 esphome:
   name: bmi160-esp32c3
   platformio_options:

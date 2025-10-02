@@ -35,7 +35,79 @@ espnow:
   on_broadcast:
     then:
       - lambda: |-
-          ESP_LOGD("espnow", "Received ESP-NOW data");
+          ESP_LOGD("espnow", "Received ESP-NOW data (%u bytes)", size);
+
+          if (size == 0) {
+            ESP_LOGW("espnow", "Empty payload received");
+            return;
+          }
+
+          if (data[0] == '{' && data[size - 1] == '}') {
+            std::string json_payload(reinterpret_cast<const char *>(data), size);
+
+            auto extract_float = [&](const char *field, float &out) -> bool {
+              const std::string needle = std::string("\"") + field + "\"";
+              size_t pos = json_payload.find(needle);
+              if (pos == std::string::npos) {
+                return false;
+              }
+              pos = json_payload.find(':', pos + needle.size());
+              if (pos == std::string::npos) {
+                return false;
+              }
+              const char *start = json_payload.c_str() + pos + 1;
+              char *end = nullptr;
+              out = strtof(start, &end);
+              return start != end;
+            };
+
+            bool any_valid = false;
+
+            float tvoc = NAN;
+            if (extract_float("tvoc", tvoc)) {
+              if (!isnan(tvoc) && tvoc >= 0.0f && tvoc < 10.0f) {
+                id(received_tvoc) = tvoc;
+                id(espnow_tvoc).publish_state(tvoc);
+                any_valid = true;
+                ESP_LOGI("espnow", "TVOC=%.3f mg/m³", tvoc);
+              } else {
+                ESP_LOGW("espnow", "TVOC value out of range: %.3f", tvoc);
+              }
+            }
+
+            float formaldehyde = NAN;
+            if (extract_float("formaldehyde", formaldehyde)) {
+              if (!isnan(formaldehyde) && formaldehyde >= 0.0f && formaldehyde < 1.5f) {
+                id(received_formaldehyde) = formaldehyde;
+                id(espnow_formaldehyde).publish_state(formaldehyde);
+                any_valid = true;
+                ESP_LOGI("espnow", "甲醛=%.3f mg/m³", formaldehyde);
+              } else {
+                ESP_LOGW("espnow", "甲醛数值超出范围: %.3f", formaldehyde);
+              }
+            }
+
+            float co2 = NAN;
+            if (extract_float("co2", co2)) {
+              if (!isnan(co2) && co2 >= 0.0f && co2 < 10000.0f) {
+                id(received_co2) = co2;
+                id(espnow_co2).publish_state(co2);
+                any_valid = true;
+                ESP_LOGI("espnow", "CO₂=%.3f", co2);
+              } else {
+                ESP_LOGW("espnow", "CO₂数值超出范围: %.3f", co2);
+              }
+            }
+
+            if (any_valid) {
+              const unsigned long now = millis();
+              id(last_voc_update_time) = now;
+              id(last_update_time) = now;
+            } else {
+              ESP_LOGW("espnow", "JSON payload did not contain valid VOC data");
+            }
+            return;
+          }
 
           if (size < 12) {
             ESP_LOGW("espnow", "Payload too short: %u bytes", size);
@@ -87,7 +159,10 @@ espnow:
           if (co2_valid) {
             id(received_co2) = co2;
           }
-          id(last_update_time) = millis();
+
+          const unsigned long now = millis();
+          id(last_env_update_time) = now;
+          id(last_update_time) = now;
 
           id(espnow_temperature).publish_state(temp);
           id(espnow_humidity).publish_state(hum);
@@ -112,7 +187,6 @@ espnow:
           if (co2_valid) {
             ESP_LOGI("espnow", "CO₂=%.0f ppm", co2);
           }
-
 globals:
   - id: received_temperature
     type: float
@@ -132,6 +206,12 @@ globals:
   - id: received_co2
     type: float
     initial_value: '0.0'
+  - id: last_env_update_time
+    type: unsigned long
+    initial_value: '0'
+  - id: last_voc_update_time
+    type: unsigned long
+    initial_value: '0'
   - id: last_update_time
     type: unsigned long
     initial_value: '0'

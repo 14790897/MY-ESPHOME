@@ -1,4 +1,4 @@
-esphome:
+﻿esphome:
   name: voc-myesp32c3-espnow
   friendly_name: "VOC-CO2-HCHO ESP32-C3 Sensor (ESP-NOW)"
 
@@ -25,14 +25,13 @@ wifi:
   on_disconnect:
     - logger.log: "WiFi连接断开！"
 
-# ESP-NOW配置
+# ESP-NOW配置 - 基于源码的标准格式
 espnow:
-  wifi_id: main_wifi
-  peers:
-    - id: voc_gateway
-      mac_address: !secret voc_espnow_gateway_mac  # 在secrets.yaml中配置接收端MAC地址
-      channel: 1
-
+  id: espnow_component
+  enable_on_boot: true
+  channel: 1  # WiFi信道，必须与接收端一致
+  # 自动添加peer模式
+  auto_add_peer: true
 # UART配置 - 用于读取VOC-CO2-HCHO传感器数据
 uart:
   id: uart_bus
@@ -75,9 +74,10 @@ script:
           condition:
             lambda: 'return id(last_espnow_payload).size() > 2;'
           then:
-            - espnow.send:
-                peer_id: voc_gateway
-                data: !lambda 'return id(last_espnow_payload);'
+            - espnow.broadcast:
+                id: espnow_component
+
+                data: !lambda |\n                  const std::string &payload = id(last_espnow_payload);\n                  return std::vector<uint8_t>(payload.begin(), payload.end());
 
 sensor:
   # VOC-CO2-HCHO传感器数据
