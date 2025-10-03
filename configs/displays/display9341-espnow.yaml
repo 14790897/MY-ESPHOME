@@ -9,7 +9,7 @@ font:
     id: font_main
     size: 16
     bpp: 1
-    glyphs: "0123456789.%°Cmg/hPa³TVO甲醛环境监测传感器数据在线离温湿气压更新秒前已有超时度:- slESNW"
+    glyphs: "0123456789.%°Cmg/hPa³TVO甲醛环境监测传感器数据在线离温湿气压更新秒前已有超时度:- slESNWp"
 
 output:
   - platform: ledc
@@ -114,19 +114,19 @@ display:
       }
       y_pos += line_spacing;
 
-      if (id(espnow_pressure).has_state()) {
-        const float pressure = id(espnow_pressure).state;
-        Color pressure_color;
-        if (pressure < 950.0f || pressure > 1050.0f) {
-          pressure_color = Color(255, 215, 0);
-        } else {
-          pressure_color = Color(0, 255, 255);
-        }
-        it.printf(margin + 10, y_pos, data_font, pressure_color, "气压: %.1f hPa", pressure);
-      } else {
-        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "气压: --");
-      }
-      y_pos += line_spacing;
+      // if (id(espnow_pressure).has_state()) {
+      //   const float pressure = id(espnow_pressure).state;
+      //   Color pressure_color;
+      //   if (pressure < 950.0f || pressure > 1050.0f) {
+      //     pressure_color = Color(255, 215, 0);
+      //   } else {
+      //     pressure_color = Color(0, 255, 255);
+      //   }
+      //   it.printf(margin + 10, y_pos, data_font, pressure_color, "气压: %.1f hPa", pressure);
+      // } else {
+      //   it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "气压: --");
+      // }
+      // y_pos += line_spacing;
 
       if (id(espnow_tvoc).has_state()) {
         const float tvoc = id(espnow_tvoc).state;
@@ -161,7 +161,7 @@ display:
       y_pos += line_spacing;
 
       if (id(espnow_co2).has_state()) {
-        const float co2 = id(espnow_co2).state;
+        const float co2 = id(espnow_co2).state*1000;
         Color co2_color;
         if (co2 < 1000.0f) {
           co2_color = Color(0, 255, 0);
