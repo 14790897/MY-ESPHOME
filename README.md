@@ -29,6 +29,35 @@
 - **主配置**: `voc-esp32c3.yaml`
 - **参考代码**: `test_VOC-CO2-HCHO-Sensor.cpp` -->
 
+## ✨ 新功能: MQTT响应接收
+
+### 📡 ESP-NOW环境监测面板 MQTT功能
+
+`envpanel-espnow-c3.yaml` 现已支持MQTT响应信息获取功能！
+
+**核心功能**:
+- ✅ 实时接收物联网平台的MQTT响应消息
+- ✅ 每60秒自动上传传感器数据到物联网平台
+- ✅ 通过text_sensor显示MQTT状态和响应内容
+- ✅ 详细的连接状态和响应时间监控
+
+**快速开始**:
+```bash
+# 1. 复制配置模板
+cp secrets.yaml.example secrets.yaml
+
+# 2. 编辑secrets.yaml填写MQTT配置
+
+# 3. 编译上传
+esphome run configs/displays/envpanel-espnow-c3.yaml
+```
+
+**文档**:
+- 📖 [详细使用指南](docs/MQTT_RESPONSE_GUIDE.md)
+- 🚀 [快速开始](docs/MQTT_QUICK_START.md)
+
+---
+
 ## 常用命令
 ```bash
 # 编译固件

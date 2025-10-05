@@ -27,6 +27,36 @@ ota:
 
 network:
 
+# MQTT Configuration for IoT Platform
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  topic_prefix: !secret mqtt_topic_prefix
+  discovery: false
+  on_connect:
+    - lambda: |-
+        ESP_LOGI("mqtt", "MQTT已连接到物联网平台");
+        id(mqtt_response).publish_state("MQTT连接成功");
+        id(mqtt_last_response_time) = millis();
+  on_disconnect:
+    - lambda: |-
+        ESP_LOGW("mqtt", "MQTT连接断开");
+        id(mqtt_response).publish_state("MQTT断开连接");
+  on_message:
+    - topic: !secret mqtt_topic_property_set
+      then:
+        - lambda: |-
+            ESP_LOGI("mqtt", "收到MQTT属性设置: %s", x.c_str());
+            id(mqtt_response).publish_state(x.c_str());
+            id(mqtt_last_response_time) = millis();
+    - topic: +/thing/property/post_reply
+      then:
+        - lambda: |-
+            ESP_LOGI("mqtt", "收到属性上报响应: %s", x.c_str());
+            id(mqtt_response).publish_state(("上报响应: " + x).c_str());
+            id(mqtt_last_response_time) = millis();
+
 espnow:
   id: espnow_component
   enable_on_boot: true
@@ -215,6 +245,102 @@ globals:
   - id: last_update_time
     type: unsigned long
     initial_value: '0'
+  - id: mqtt_last_response_time
+    type: unsigned long
+    initial_value: '0'
+
+# MQTT数据上传间隔配置
+interval:
+  - interval: 60s
+    then:
+      - lambda: |-
+          // 检查数据是否有效
+          if (id(last_update_time) == 0) {
+            ESP_LOGW("mqtt", "没有可用数据，跳过MQTT上传");
+            return;
+          }
+          
+          // 检查数据是否过期（超过10分钟）
+          unsigned long age = (millis() - id(last_update_time)) / 1000;
+          if (age > 600) {
+            ESP_LOGW("mqtt", "数据已过期 (%lu 秒)，跳过MQTT上传", age);
+            return;
+          }
+          
+          // 构建JSON数据
+          char json_buffer[512];
+          int len = snprintf(json_buffer, sizeof(json_buffer),
+            "{"
+            "\"id\":\"%lu\","
+            "\"version\":\"1.0\","
+            "\"params\":{"
+              "\"temperature\":%.1f,"
+              "\"humidity\":%.1f,"
+              "\"pressure\":%.1f",
+            millis(),
+            id(received_temperature),
+            id(received_humidity),
+            id(received_pressure)
+          );
+          
+          // 添加VOC数据（如果有效）
+          if (!isnan(id(received_tvoc)) && id(received_tvoc) >= 0.0f && id(received_tvoc) < 10.0f) {
+            len += snprintf(json_buffer + len, sizeof(json_buffer) - len,
+              ",\"tvoc\":%.3f", id(received_tvoc));
+          }
+          
+          // 添加甲醛数据（如果有效）
+          if (!isnan(id(received_formaldehyde)) && id(received_formaldehyde) >= 0.0f && id(received_formaldehyde) < 1.5f) {
+            len += snprintf(json_buffer + len, sizeof(json_buffer) - len,
+              ",\"formaldehyde\":%.3f", id(received_formaldehyde));
+          }
+          
+          // 添加CO2数据（如果有效）
+          if (!isnan(id(received_co2)) && id(received_co2) >= 200.0f && id(received_co2) < 10000.0f) {
+            len += snprintf(json_buffer + len, sizeof(json_buffer) - len,
+              ",\"co2\":%.1f", id(received_co2));
+          }
+          
+          // 结束JSON
+          snprintf(json_buffer + len, sizeof(json_buffer) - len, "}}");
+          
+          ESP_LOGI("mqtt", "上传数据到物联网平台: %s", json_buffer);
+      - mqtt.publish:
+          topic: !secret mqtt_topic_property_post
+          payload: !lambda |-
+            // 重新构建相同的JSON
+            char json_buffer[512];
+            int len = snprintf(json_buffer, sizeof(json_buffer),
+              "{"
+              "\"id\":\"%lu\","
+              "\"version\":\"1.0\","
+              "\"params\":{"
+                "\"temperature\":%.1f,"
+                "\"humidity\":%.1f,"
+                "\"pressure\":%.1f",
+              millis(),
+              id(received_temperature),
+              id(received_humidity),
+              id(received_pressure)
+            );
+            
+            if (!isnan(id(received_tvoc)) && id(received_tvoc) >= 0.0f && id(received_tvoc) < 10.0f) {
+              len += snprintf(json_buffer + len, sizeof(json_buffer) - len,
+                ",\"tvoc\":%.3f", id(received_tvoc));
+            }
+            
+            if (!isnan(id(received_formaldehyde)) && id(received_formaldehyde) >= 0.0f && id(received_formaldehyde) < 1.5f) {
+              len += snprintf(json_buffer + len, sizeof(json_buffer) - len,
+                ",\"formaldehyde\":%.3f", id(received_formaldehyde));
+            }
+            
+            if (!isnan(id(received_co2)) && id(received_co2) >= 200.0f && id(received_co2) < 10000.0f) {
+              len += snprintf(json_buffer + len, sizeof(json_buffer) - len,
+                ",\"co2\":%.1f", id(received_co2));
+            }
+            
+            snprintf(json_buffer + len, sizeof(json_buffer) - len, "}}");
+            return std::string(json_buffer);
 
 packages:
   display9341: !include ../displays/display9341-espnow.yaml
@@ -294,6 +420,29 @@ text_sensor:
       if (age < 60) return std::string("数据最新");
       if (age < 600) return std::string("数据已有 " + to_string(age) + " 秒");
       return std::string("数据超时");
+    update_interval: 10s
+
+  - platform: template
+    name: "MQTT Response"
+    id: mqtt_response
+    icon: "mdi:message-reply-text"
+
+  - platform: template
+    name: "MQTT Status"
+    id: mqtt_status
+    icon: "mdi:cloud-check"
+    lambda: |-
+      if (id(mqtt_last_response_time) == 0) {
+        return std::string("等待响应");
+      }
+      unsigned long age = (millis() - id(mqtt_last_response_time)) / 1000;
+      if (age < 120) {
+        return std::string("已连接");
+      } else if (age < 600) {
+        return std::string("响应延迟 " + to_string(age) + " 秒");
+      } else {
+        return std::string("响应超时");
+      }
     update_interval: 10s
 
 
