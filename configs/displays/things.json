@@ -1,0 +1,116 @@
+{
+    "version": "1.0",
+    "properties": [
+        {
+            "identifier": "formaldehyde",
+            "name": "甲醛",
+            "functionType": "u",
+            "accessMode": "rw",
+            "desc": "",
+            "dataType": {
+                "type": "float",
+                "specs": {
+                    "max": "1.5",
+                    "min": "0",
+                    "step": "0.001",
+                    "unit": "mg/m³"
+                }
+            },
+            "functionMode": "property",
+            "required": false
+        },
+        {
+            "identifier": "co2",
+            "name": "CO2",
+            "functionType": "u",
+            "accessMode": "rw",
+            "desc": "",
+            "dataType": {
+                "type": "float",
+                "specs": {
+                    "max": "10000",
+                    "min": "0",
+                    "step": "1",
+                    "unit": "ppm"
+                }
+            },
+            "functionMode": "property",
+            "required": false
+        },
+        {
+            "identifier": "humidity",
+            "name": "湿度",
+            "functionType": "u",
+            "accessMode": "rw",
+            "desc": "",
+            "dataType": {
+                "type": "float",
+                "specs": {
+                    "max": "100",
+                    "min": "0",
+                    "step": "0.1",
+                    "unit": "%"
+                }
+            },
+            "functionMode": "property",
+            "required": false
+        },
+        {
+            "identifier": "pressure",
+            "name": "气压",
+            "functionType": "u",
+            "accessMode": "rw",
+            "desc": "",
+            "dataType": {
+                "type": "float",
+                "specs": {
+                    "max": "1200",
+                    "min": "800",
+                    "step": "0.1",
+                    "unit": "hPa"
+                }
+            },
+            "functionMode": "property",
+            "required": false
+        },
+        {
+            "identifier": "temperature",
+            "name": "温度",
+            "functionType": "u",
+            "accessMode": "rw",
+            "desc": "",
+            "dataType": {
+                "type": "float",
+                "specs": {
+                    "max": "100",
+                    "min": "-50",
+                    "step": "0.1",
+                    "unit": "°C"
+                }
+            },
+            "functionMode": "property",
+            "required": false
+        },
+        {
+            "identifier": "tvoc",
+            "name": "TVOC",
+            "functionType": "u",
+            "accessMode": "rw",
+            "desc": "",
+            "dataType": {
+                "type": "float",
+                "specs": {
+                    "max": "10",
+                    "min": "0",
+                    "step": "0.001",
+                    "unit": "mg/m³"
+                }
+            },
+            "functionMode": "property",
+            "required": false
+        }
+    ],
+    "events": [],
+    "services": [],
+    "combs": []
+}

@@ -25,6 +25,15 @@ ota:
   - platform: esphome
     password: !secret ota_password
 
+# MQTT配置
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  topic_prefix: !secret mqtt_topic_prefix
+  discovery: false
+  discovery_retain: false
+
 network:
 
 espnow:
@@ -295,6 +304,57 @@ text_sensor:
       if (age < 600) return std::string("数据已有 " + to_string(age) + " 秒");
       return std::string("数据超时");
     update_interval: 10s
+
+# 定时上传MQTT数据 - 每60秒上传一次传感器数据到物联网平台
+interval:
+  - interval: 60s
+    then:
+      - mqtt.publish:
+          topic: !secret mqtt_topic_property_post
+          payload: !lambda |-
+            // 检查是否有有效数据
+            if (id(last_update_time) == 0) {
+              ESP_LOGW("mqtt_upload", "没有可用的传感器数据");
+              return std::string("");
+            }
+            
+            // 检查数据是否过期（超过10分钟）
+            unsigned long data_age = (millis() - id(last_update_time)) / 1000;
+            if (data_age > 600) {
+              ESP_LOGW("mqtt_upload", "传感器数据已过期 (%lu 秒)", data_age);
+              return std::string("");
+            }
+            
+            ESP_LOGI("mqtt_upload", "上传传感器数据到MQTT物联网平台...");
+            
+            // 构建JSON格式的物联网平台数据
+            std::string json_msg = "{";
+            json_msg += "\"id\":\"" + to_string(millis()) + "\",";
+            json_msg += "\"version\":\"1.0\",";
+            json_msg += "\"params\":{";
+            json_msg += "\"temperature\":" + to_string(id(received_temperature)) + ",";
+            json_msg += "\"humidity\":" + to_string(id(received_humidity)) + ",";
+            json_msg += "\"pressure\":" + to_string(id(received_pressure));
+            
+            // 添加TVOC数据（如果有效）
+            if (!isnan(id(received_tvoc)) && id(received_tvoc) > 0.0f) {
+              json_msg += ",\"tvoc\":" + to_string(id(received_tvoc));
+            }
+            
+            // 添加甲醛数据（如果有效）
+            if (!isnan(id(received_formaldehyde)) && id(received_formaldehyde) > 0.0f) {
+              json_msg += ",\"formaldehyde\":" + to_string(id(received_formaldehyde));
+            }
+            
+            // 添加CO2数据（如果有效）
+            if (!isnan(id(received_co2)) && id(received_co2) > 0.0f) {
+              json_msg += ",\"co2\":" + to_string(id(received_co2));
+            }
+            
+            json_msg += "}}";
+            
+            ESP_LOGI("mqtt_upload", "MQTT数据上传: %s", json_msg.c_str());
+            return json_msg;
 
 
 
