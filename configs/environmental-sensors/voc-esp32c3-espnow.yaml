@@ -114,7 +114,7 @@ sensor:
 
 # VOC传感器数据处理间隔 - 严格按照test_VOC-CO2-HCHO-Sensor.cpp实现
 interval:
-  - interval: 2000ms  # 每2秒检查一次UART数据，与C++代码的READ_INTERVAL一致
+  - interval: 10000ms  # 每10秒检查一次UART数据，与C++代码的READ_INTERVAL一致
     then:
       - lambda: |-
           ESP_LOGI("voc_uart", "⏰ 开始读取21VOC传感器数据");

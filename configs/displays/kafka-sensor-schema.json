@@ -1,0 +1,48 @@
+{
+  "type": "record",
+  "namespace": "com.esphome.sensors",
+  "name": "EnvironmentalSensorData",
+  "doc": "Environmental sensor data schema for ESP-NOW panel with temperature, humidity, pressure, and air quality measurements.",
+  "fields": [
+    {
+      "name": "temperature",
+      "type": "double",
+      "doc": "Temperature reading in degrees Celsius. Range: -50°C to 100°C. The double type is a double precision (64-bit) IEEE 754 floating-point number."
+    },
+    {
+      "name": "humidity",
+      "type": "double",
+      "doc": "Relative humidity reading in percentage. Range: 0% to 100%. The double type is a double precision (64-bit) IEEE 754 floating-point number."
+    },
+    {
+      "name": "pressure",
+      "type": "double",
+      "doc": "Atmospheric pressure reading in hectopascals (hPa). Range: 800 hPa to 1200 hPa. The double type is a double precision (64-bit) IEEE 754 floating-point number."
+    },
+    {
+      "name": "tvoc",
+      "type": "double",
+      "doc": "Total Volatile Organic Compounds concentration in mg/m³. Range: 0 to 10 mg/m³. The double type is a double precision (64-bit) IEEE 754 floating-point number."
+    },
+    {
+      "name": "formaldehyde",
+      "type": "double",
+      "doc": "Formaldehyde (HCHO) concentration in mg/m³. Range: 0 to 1.5 mg/m³. The double type is a double precision (64-bit) IEEE 754 floating-point number."
+    },
+    {
+      "name": "co2",
+      "type": "double",
+      "doc": "Carbon Dioxide (CO₂) concentration in parts per million (ppm). Range: 0 to 10000 ppm. The double type is a double precision (64-bit) IEEE 754 floating-point number."
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "doc": "Unix timestamp in milliseconds when the measurement was taken. The long type is a 64-bit signed integer."
+    },
+    {
+      "name": "device_id",
+      "type": "string",
+      "doc": "Unique identifier for the device that generated this reading. The string is a unicode character sequence."
+    }
+  ]
+}

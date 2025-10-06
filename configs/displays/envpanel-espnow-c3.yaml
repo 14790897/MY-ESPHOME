@@ -2,19 +2,31 @@
 substitutions:
   device_name: "envpanel-espnow-c3"
   friendly_name: "ESP-NOW-C3"
+  
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - ntp.aliyun.com
+      - time.windows.com
+    timezone: Asia/Shanghai
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
+  # on_boot:
+  #   priority: -10
+  #   then:
+  #     - delay: 8s         # 等 Wi-Fi + SNTP
+  #     - mqtt.enable:
 
 esp32:
   board: airm2m_core_esp32c3
   framework:
-    type: arduino
+    type: esp-idf
 
 logger:
-  level: DEBUG
-
+  level: debug
 api:
 
 wifi:
@@ -23,18 +35,62 @@ wifi:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
 
 # MQTT配置
 mqtt:
   broker: !secret mqtt_broker
+  port: 8883
   username: !secret mqtt_username
   password: !secret mqtt_password
-  topic_prefix: !secret mqtt_topic_prefix
-  discovery: false
-  discovery_retain: false
+  client_id: !secret mqtt_topic_device_name
+  # clean_session: true             # 必须为 true，否则可能被服务器直接断开
+  # topic_prefix: null
+  # enable_on_boot: false
+  # discovery: false
+  # discovery_retain: false
+  # skip_cert_cn_check: true
+  # idf_send_async: false  # 关键：ESP-IDF同步发送，避免TLS握手问题
+  certificate_authority: !secret certificate
+  # keepalive: 60s
+  # reboot_timeout: 15min
+  # MQTT连接状态回调
+  on_connect:
+    - lambda: |-
+        ESP_LOGI("mqtt", "MQTT连接成功！");
+        id(mqtt_connected) = true;
+  on_disconnect:
+    - lambda: |-
+        ESP_LOGW("mqtt", "MQTT断开连接！");
+        id(mqtt_connected) = false;
+  # 订阅MQTT主题获取响应信息
+  on_message:
+    - topic: !secret mqtt_topic_property_set  # 订阅设备属性设置主题
+      then:
+        - lambda: |-
+            ESP_LOGI("mqtt_response", "收到MQTT属性设置消息: %s", x.c_str());
+            // 可以在这里解析JSON响应并执行相应操作
+            id(last_mqtt_response) = x;
+            id(mqtt_response_sensor).publish_state(x);
+    - topic: !secret mqtt_topic_service_invoke  # 订阅服务调用主题
+      then:
+        - lambda: |-
+            ESP_LOGI("mqtt_response", "收到MQTT服务调用消息: %s", x.c_str());
+            id(last_mqtt_response) = x;
+            id(mqtt_response_sensor).publish_state(x);
+    - topic: !secret mqtt_topic_response  # 订阅通用响应主题
+      then:
+        - lambda: |-
+            ESP_LOGI("mqtt_response", "收到MQTT响应: %s", x.c_str());
+            id(last_mqtt_response) = x;
+            id(mqtt_response_sensor).publish_state(x);
+            
+            // 解析响应代码
+            if (x.find("\"code\":200") != std::string::npos) {
+              ESP_LOGI("mqtt_response", "✓ 数据上传成功");
+            } else if (x.find("\"code\":") != std::string::npos) {
+              ESP_LOGW("mqtt_response", "✗ 数据上传失败");
+            }
 
-network:
 
 espnow:
   id: espnow_component
@@ -224,6 +280,13 @@ globals:
   - id: last_update_time
     type: unsigned long
     initial_value: '0'
+  # MQTT响应相关全局变量
+  - id: last_mqtt_response
+    type: std::string
+    initial_value: '""'
+  - id: mqtt_connected
+    type: bool
+    initial_value: 'false'
 
 packages:
   display9341: !include ../displays/display9341-espnow.yaml
@@ -304,57 +367,110 @@ text_sensor:
       if (age < 600) return std::string("数据已有 " + to_string(age) + " 秒");
       return std::string("数据超时");
     update_interval: 10s
+  
+  # MQTT响应信息传感器
+  - platform: template
+    name: "MQTT Response"
+    id: mqtt_response_sensor
+    icon: "mdi:message-reply-text"
+    lambda: |-
+      return id(last_mqtt_response);
+    update_interval: never
+  
+  # MQTT连接状态传感器
+  - platform: template
+    name: "MQTT Connection Status"
+    id: mqtt_status_sensor
+    icon: "mdi:cloud-check"
+    lambda: |-
+      if (id(mqtt_connected)) {
+        return std::string("已连接");
+      } else {
+        return std::string("未连接");
+      }
+    update_interval: 10s
 
 # 定时上传MQTT数据 - 每60秒上传一次传感器数据到物联网平台
 interval:
   - interval: 60s
     then:
-      - mqtt.publish:
-          topic: !secret mqtt_topic_property_post
-          payload: !lambda |-
-            // 检查是否有有效数据
-            if (id(last_update_time) == 0) {
-              ESP_LOGW("mqtt_upload", "没有可用的传感器数据");
-              return std::string("");
-            }
-            
-            // 检查数据是否过期（超过10分钟）
-            unsigned long data_age = (millis() - id(last_update_time)) / 1000;
-            if (data_age > 600) {
-              ESP_LOGW("mqtt_upload", "传感器数据已过期 (%lu 秒)", data_age);
-              return std::string("");
-            }
-            
-            ESP_LOGI("mqtt_upload", "上传传感器数据到MQTT物联网平台...");
-            
-            // 构建JSON格式的物联网平台数据
-            std::string json_msg = "{";
-            json_msg += "\"id\":\"" + to_string(millis()) + "\",";
-            json_msg += "\"version\":\"1.0\",";
-            json_msg += "\"params\":{";
-            json_msg += "\"temperature\":" + to_string(id(received_temperature)) + ",";
-            json_msg += "\"humidity\":" + to_string(id(received_humidity)) + ",";
-            json_msg += "\"pressure\":" + to_string(id(received_pressure));
-            
-            // 添加TVOC数据（如果有效）
-            if (!isnan(id(received_tvoc)) && id(received_tvoc) > 0.0f) {
-              json_msg += ",\"tvoc\":" + to_string(id(received_tvoc));
-            }
-            
-            // 添加甲醛数据（如果有效）
-            if (!isnan(id(received_formaldehyde)) && id(received_formaldehyde) > 0.0f) {
-              json_msg += ",\"formaldehyde\":" + to_string(id(received_formaldehyde));
-            }
-            
-            // 添加CO2数据（如果有效）
-            if (!isnan(id(received_co2)) && id(received_co2) > 0.0f) {
-              json_msg += ",\"co2\":" + to_string(id(received_co2));
-            }
-            
-            json_msg += "}}";
-            
-            ESP_LOGI("mqtt_upload", "MQTT数据上传: %s", json_msg.c_str());
-            return json_msg;
-
-
-
+      - if:
+          condition:
+            mqtt.connected:
+          then:
+            - mqtt.publish:
+                topic: !secret mqtt_topic_property_post
+                payload: !lambda |-
+                  // 检查是否有有效数据
+                  if (id(last_update_time) == 0) {
+                    ESP_LOGW("mqtt_upload", "没有可用的传感器数据");
+                    return std::string("");
+                  }
+                  
+                  // 检查数据是否过期（超过10分钟）
+                  unsigned long data_age = (millis() - id(last_update_time)) / 1000;
+                  if (data_age > 600) {
+                    ESP_LOGW("mqtt_upload", "传感器数据已过期 (%lu 秒)", data_age);
+                    return std::string("");
+                  }
+                  
+                  #include <ArduinoJson.h>
+                  
+                  ESP_LOGI("mqtt_upload", "上传传感器数据到MQTT物联网平台...");
+                  
+                  // 获取当前时间戳（Unix时间戳，毫秒）
+                  auto time_now = id(sntp_time).now();
+                  int64_t timestamp = time_now.timestamp * 1000LL;
+                  
+                  // 使用ArduinoJson构建JSON数据
+                  JsonDocument doc;
+                  
+                  // 设置顶层字段
+                  doc["id"] = to_string(millis());
+                  doc["version"] = "1.0";
+                  
+                  // 创建params对象
+                  JsonObject params = doc["params"].to<JsonObject>();
+                  
+                  // 添加temperature（必需）
+                  JsonObject temp = params["temperature"].to<JsonObject>();
+                  temp["value"] = id(received_temperature);
+                  temp["time"] = timestamp;
+                  
+                  // 添加humidity（必需）
+                  JsonObject hum = params["humidity"].to<JsonObject>();
+                  hum["value"] = id(received_humidity);
+                  hum["time"] = timestamp;
+                  
+                  // 添加pressure（必需）
+                  JsonObject press = params["pressure"].to<JsonObject>();
+                  press["value"] = id(received_pressure);
+                  press["time"] = timestamp;
+                  
+                  // 添加TVOC数据（如果有效）
+                  if (!isnan(id(received_tvoc)) && id(received_tvoc) > 0.0f) {
+                    JsonObject tvoc = params["tvoc"].to<JsonObject>();
+                    tvoc["value"] = id(received_tvoc);
+                    tvoc["time"] = timestamp;
+                  }
+                  
+                  // 添加甲醛数据（如果有效）
+                  if (!isnan(id(received_formaldehyde)) && id(received_formaldehyde) > 0.0f) {
+                    JsonObject hcho = params["formaldehyde"].to<JsonObject>();
+                    hcho["value"] = id(received_formaldehyde);
+                    hcho["time"] = timestamp;
+                  }
+                  
+                  // 添加CO2数据（如果有效）
+                  if (!isnan(id(received_co2)) && id(received_co2) > 0.0f) {
+                    JsonObject co2 = params["co2"].to<JsonObject>();
+                    co2["value"] = id(received_co2);
+                    co2["time"] = timestamp;
+                  }
+                  
+                  // 序列化为字符串
+                  std::string json_msg;
+                  serializeJson(doc, json_msg);
+                  
+                  ESP_LOGI("mqtt_upload", "MQTT数据上传: %s", json_msg.c_str());
+                  return json_msg;
