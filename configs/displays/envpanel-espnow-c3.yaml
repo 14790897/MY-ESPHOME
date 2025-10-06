@@ -418,9 +418,9 @@ interval:
                   
                   ESP_LOGI("mqtt_upload", "上传传感器数据到MQTT物联网平台...");
                   
-                  // 获取当前时间戳（Unix时间戳，毫秒）
+                  // 获取当前时间戳（Unix时间戳，纳秒）
                   auto time_now = id(sntp_time).now();
-                  int64_t timestamp = time_now.timestamp * 1000LL;
+                  int64_t timestamp = time_now.timestamp * 1000000000LL;
                   
                   // 使用ArduinoJson构建JSON数据
                   JsonDocument doc;
@@ -464,7 +464,7 @@ interval:
                   // 添加CO2数据（如果有效）
                   if (!isnan(id(received_co2)) && id(received_co2) > 0.0f) {
                     JsonObject co2 = params["co2"].to<JsonObject>();
-                    co2["value"] = id(received_co2);
+                    co2["value"] = id(received_co2)*1000;  // 转换为ppm
                     co2["time"] = timestamp;
                   }
                   
