@@ -1,6 +1,10 @@
 esphome:
-  name: bmp-aht-esp32c3-espnow-fixed
-  friendly_name: ESP-NOW Env Sender Fixed (AHT20 + BMP280)
+  name: bmp-aht-esp32c3-espnow
+  friendly_name: ESP-NOW Env Sender (AHT20 + BMP280)
+  on_boot:
+    priority: 800       # 比传感器默认初始化更早执行
+    then:
+      - delay: 1200ms   # 给模块电源/上拉/总线充足缓冲时间
 
 esp32:
   board: airm2m_core_esp32c3
@@ -9,21 +13,26 @@ esp32:
 
 logger:
   level: DEBUG
-  logs:
-    espnow: DEBUG
+
+# WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
 
 # Network组件 - ESP-NOW需要网络依赖
 network:
 
-# OTA也移除，避免额外复杂性
-# ota:
-#   platform: esphome
+# OTA配置 - 支持远程更新
+ota:
+  platform: esphome
+api:
 
 i2c:
   sda: 4
   scl: 5
   scan: true
   id: bus_a
+  # frequency: 50kHz      # 先降到 50kHz，确认稳定后再提速
 
 # 全局变量用于在action间传递传感器数据
 globals:
@@ -68,19 +77,19 @@ interval:
           // 检查关键传感器数据有效性 (温湿度必须有效，气压可选)
           if (std::isnan(temp) || std::isnan(hum)) {
             ESP_LOGW("espnow", "温湿度传感器数据无效，跳过发送");
-            return;
+          }else {
+          // 准备数据用于发送
+          id(temp_for_send) = temp;
+          id(hum_for_send) = hum;
           }
           
           // 如果气压传感器无效，使用默认值
           if (std::isnan(press)) {
-            press = 1013.25;  // 标准大气压
-            ESP_LOGW("espnow", "气压传感器无效，使用默认值: %.2fhPa", press);
-          }
+            ESP_LOGW("espnow", "气压传感器无效，跳过发送");
+          }else {
+            id(press_for_send) = press;
+          } 
           
-          // 准备数据用于发送
-          id(temp_for_send) = temp;
-          id(hum_for_send) = hum;
-          id(press_for_send) = press;
       # 使用官方推荐的espnow.broadcast action
       - espnow.broadcast:
           id: espnow_component
@@ -99,13 +108,16 @@ interval:
 sensor:
   # AHT20 Temperature and Humidity Sensor (Fixed address 0x38)
   - platform: aht10
+    i2c_id: bus_a
+    setup_priority: -100   # 延后初始化，等上面的 on_boot 延时跑完
     temperature:
       name: "AHT20 Temperature"
       id: aht20_temperature
     humidity:
       name: "AHT20 Humidity"
       id: aht20_humidity
-    update_interval: 300s
+    variant: AHT20
+    update_interval: 30s
 
   # BMP280 Pressure Sensor
   - platform: bmp280_i2c
@@ -117,7 +129,7 @@ sensor:
       id: bmp280_pressure
     address: 0x77
     i2c_id: bus_a
-    update_interval: 300s
+    update_interval: 30s
 
 
 external_components:

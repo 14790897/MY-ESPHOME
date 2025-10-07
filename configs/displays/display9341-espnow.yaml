@@ -72,12 +72,12 @@ display:
       y_pos += section_spacing;
 
       const bool data_fresh = (millis() - id(last_update_time)) < 60000;
-      if (data_fresh) {
-        it.print(margin, y_pos, section_font, Color(0, 255, 0), "ESP-NOW: 在线");
-      } else {
-        it.print(margin, y_pos, section_font, Color(255, 0, 0), "ESP-NOW: 离线");
-      }
-      y_pos += line_spacing;
+      // if (data_fresh) {
+      //   it.print(margin, y_pos, section_font, Color(0, 255, 0), "ESP-NOW: 在线");
+      // } else {
+      //   it.print(margin, y_pos, section_font, Color(255, 0, 0), "ESP-NOW: 离线");
+      // }
+      // y_pos += line_spacing;
 
       it.print(margin, y_pos, section_font, Color(200, 200, 200), "传感器数据");
       y_pos += line_spacing;
@@ -114,19 +114,19 @@ display:
       }
       y_pos += line_spacing;
 
-      // if (id(espnow_pressure).has_state()) {
-      //   const float pressure = id(espnow_pressure).state;
-      //   Color pressure_color;
-      //   if (pressure < 950.0f || pressure > 1050.0f) {
-      //     pressure_color = Color(255, 215, 0);
-      //   } else {
-      //     pressure_color = Color(0, 255, 255);
-      //   }
-      //   it.printf(margin + 10, y_pos, data_font, pressure_color, "气压: %.1f hPa", pressure);
-      // } else {
-      //   it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "气压: --");
-      // }
-      // y_pos += line_spacing;
+      if (id(espnow_pressure).has_state()) {
+        const float pressure = id(espnow_pressure).state;
+        Color pressure_color;
+        if (pressure < 950.0f || pressure > 1050.0f) {
+          pressure_color = Color(255, 215, 0);
+        } else {
+          pressure_color = Color(0, 255, 255);
+        }
+        it.printf(margin + 10, y_pos, data_font, pressure_color, "气压: %.1f hPa", pressure);
+      } else {
+        it.print(margin + 10, y_pos, data_font, Color(255, 0, 0), "气压: --");
+      }
+      y_pos += line_spacing;
 
       if (id(espnow_tvoc).has_state()) {
         const float tvoc = id(espnow_tvoc).state;

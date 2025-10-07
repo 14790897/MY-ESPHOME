@@ -32,6 +32,11 @@ api:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  # 如果连接失败，就自动开启 AP 热点
+  ap:
+    ssid: "My-ESPHome-AP"
+    password: "12345678"
+captive_portal:
 
 ota:
   - platform: esphome
