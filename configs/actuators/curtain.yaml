@@ -1,0 +1,159 @@
+esphome:
+  name: stepper-a4988
+  friendly_name: Curtain Controller
+  on_boot:
+    priority: -100  # 在所有组件初始化后执行
+    then:
+      - delay: 2s  # 等待stepper初始化完成
+      - stepper.report_position:  # 恢复保存的位置
+          id: curtain_motor
+          position: !lambda "return id(saved_position);"
+
+esp32:
+  variant: esp32c6
+
+logger:
+  level: DEBUG
+
+api:
+
+sensor:
+  - platform: template
+    name: "Curtain Current Position (steps)"
+    lambda: |-
+      // 使用ESPHome内置的current_position方法
+      return id(curtain_motor).current_position;
+    update_interval: 10s
+ota:
+  platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# 全局变量用于存储位置到Flash
+globals:
+  - id: saved_position
+    type: int
+    restore_value: true  # 保存到Flash，重启后恢复
+    initial_value: '0'
+
+# -------------------- 步进电机本体 --------------------
+stepper:
+  - platform: a4988
+    id: curtain_motor
+    step_pin: GPIO4            # ← STEP
+    dir_pin: GPIO5             # ← DIR（高/低决定方向）
+    sleep_pin:                 # ← A4988的SLEEP pin（低电平有效）
+      number: GPIO12
+      inverted: true
+    max_speed: 250 steps/s     # 根据文档建议，大多数步进电机不能超过250 steps/s
+    acceleration: 800 steps/s^2
+    deceleration: 800 steps/s^2
+
+# -------------------- 限位（可选） --------------------
+binary_sensor:
+  - platform: gpio
+    id: home_sw
+    name: "Curtain Limit Switch"
+    pin:
+      number: GPIO14           # ← 接常闭或常开都行，下面做了防抖和极性处理
+      mode:
+        input: true
+        pullup: true
+      inverted: true           # 常开对地时可设 true
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      then:
+        # 停止电机：设置目标位置为当前位置
+        - stepper.set_target:
+            id: curtain_motor
+            target: !lambda "return id(curtain_motor).current_position;"
+        - stepper.report_position:    # 把当前位置标记为0（回零完成）
+            id: curtain_motor
+            position: 0
+        - globals.set:  # 保存位置到Flash
+            id: saved_position
+            value: '0'
+
+# -------------------- 控制UI（HA里会出现实体） --------------------
+button:
+  - platform: template
+    name: "Curtain Stop"
+    on_press:
+      then:
+        # ESPHome stepper没有stop action，通过设置目标位置为当前位置来停止
+        - stepper.set_target:
+            id: curtain_motor
+            target: !lambda "return id(curtain_motor).current_position;"
+        - globals.set:  # 保存当前位置到Flash
+            id: saved_position
+            value: !lambda "return id(curtain_motor).current_position;"
+
+  - platform: template
+    name: "Curtain Home (Find Limit)"
+    on_press:
+      then:
+        # 移动到负方向的远端位置，触发限位开关
+        - stepper.set_target:
+            id: curtain_motor
+            target: -10000  # 移动到足够远的负位置
+
+  - platform: template
+    name: "Curtain Open (Relative +1000 steps)"
+    on_press:
+      then:
+        - stepper.report_position:  # 重置为0以便相对移动
+            id: curtain_motor
+            position: 0
+        - stepper.set_target:
+            id: curtain_motor
+            target: 1000  # 相对移动1000步
+        - globals.set:  # 保存新位置到Flash
+            id: saved_position
+            value: !lambda "return id(saved_position) + 1000;"
+
+  - platform: template
+    name: "Curtain Close (Relative -1000 steps)"
+    on_press:
+      then:
+        - stepper.report_position:  # 重置为0以便相对移动
+            id: curtain_motor
+            position: 0
+        - stepper.set_target:
+            id: curtain_motor
+            target: -1000  # 相对移动-1000步
+        - globals.set:  # 保存新位置到Flash
+            id: saved_position
+            value: !lambda "return id(saved_position) - 1000;"
+
+number:
+  - platform: template
+    name: "Curtain Target Position (steps)"
+    min_value: -50000
+    max_value:  50000
+    step: 100
+    mode: box
+    set_action:
+      then:
+        - stepper.set_target:
+            id: curtain_motor
+            target: !lambda "return (int) x;"
+        - globals.set:  # 保存目标位置到Flash
+            id: saved_position
+            value: !lambda "return (int) x;"
+
+# sensor:
+#   - platform: template
+#     name: "Curtain Current Position (steps)"
+#     lambda: |-
+#       // 没有内置回读接口，这里用“报告的位置”作为显示值
+#       static int last = 0;
+#       return last;
+#     update_interval: 1s
+#     on_value:
+#       then:
+#         - lambda: |-    // 可选：把当前目标当作“位置”暂时报出来
+#             // 如需精准回读，请把“目标/当前位置”做持久变量，或通过脚本维护
+
