@@ -10,8 +10,9 @@ esphome:
           position: !lambda "return id(saved_position);"
 
 esp32:
-  variant: esp32c6
-
+  variant: esp32c3
+  framework:
+   type: esp-idf
 logger:
   level: DEBUG
 
@@ -45,7 +46,7 @@ stepper:
     step_pin: GPIO4            # ← STEP
     dir_pin: GPIO5             # ← DIR（高/低决定方向）
     sleep_pin:                 # ← A4988的SLEEP pin（低电平有效）
-      number: GPIO12
+      number: GPIO3
       inverted: true
     max_speed: 250 steps/s     # 根据文档建议，大多数步进电机不能超过250 steps/s
     acceleration: 800 steps/s^2
@@ -57,7 +58,7 @@ binary_sensor:
     id: home_sw
     name: "Curtain Limit Switch"
     pin:
-      number: GPIO14           # ← 接常闭或常开都行，下面做了防抖和极性处理
+      number: GPIO10          # ← 接常闭或常开都行，下面做了防抖和极性处理
       mode:
         input: true
         pullup: true
@@ -143,17 +144,3 @@ number:
         - globals.set:  # 保存目标位置到Flash
             id: saved_position
             value: !lambda "return (int) x;"
-
-# sensor:
-#   - platform: template
-#     name: "Curtain Current Position (steps)"
-#     lambda: |-
-#       // 没有内置回读接口，这里用“报告的位置”作为显示值
-#       static int last = 0;
-#       return last;
-#     update_interval: 1s
-#     on_value:
-#       then:
-#         - lambda: |-    // 可选：把当前目标当作“位置”暂时报出来
-#             // 如需精准回读，请把“目标/当前位置”做持久变量，或通过脚本维护
-
