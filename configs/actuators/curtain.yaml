@@ -1,13 +1,6 @@
 esphome:
   name: stepper-a4988
   friendly_name: Curtain Controller
-  on_boot:
-    priority: -100  # 在所有组件初始化后执行
-    then:
-      - delay: 2s  # 等待stepper初始化完成
-      - stepper.report_position:  # 恢复保存的位置
-          id: curtain_motor
-          position: !lambda "return id(saved_position);"
 
 deep_sleep:
   id: deep_sleep_control
@@ -42,13 +35,6 @@ time:
 
 api:
 
-sensor:
-  - platform: template
-    name: "Curtain Current Position (steps)"
-    lambda: |-
-      // 使用ESPHome内置的current_position方法
-      return id(curtain_motor).current_position;
-    update_interval: 10s
 ota:
   platform: esphome
 
@@ -58,11 +44,6 @@ wifi:
 
 # 全局变量用于存储位置到Flash
 globals:
-  - id: saved_position
-    type: int
-    restore_value: true
-    initial_value: '0'
-
   - id: custom_steps
     type: int
     restore_value: true
@@ -81,33 +62,6 @@ stepper:
     max_speed: 250 steps/s     # 根据文档建议，大多数步进电机不能超过250 steps/s
     acceleration: 800 steps/s^2
     deceleration: 800 steps/s^2
-
-# -------------------- 限位（可选） --------------------
-binary_sensor:
-  - platform: gpio
-    id: home_sw
-    name: "Curtain Limit Switch"
-    pin:
-      number: GPIO10          # ← 接常闭或常开都行，下面做了防抖和极性处理
-      mode:
-        input: true
-        pullup: true
-      inverted: true           # 常开对地时可设 true
-    filters:
-      - delayed_on: 10ms
-    on_press:
-      then:
-        # 停止电机：设置目标位置为当前位置
-        - stepper.set_target:
-            id: curtain_motor
-            target: !lambda "return id(curtain_motor).current_position;"
-        - stepper.report_position:    # 把当前位置标记为0（回零完成）
-            id: curtain_motor
-            position: 0
-        - globals.set:  # 保存位置到Flash
-            id: saved_position
-            value: '0'
-
   
 
 # -------------------- 控制UI（HA里会出现实体） --------------------
@@ -120,9 +74,6 @@ button:
         - stepper.set_target:
             id: curtain_motor
             target: !lambda "return id(curtain_motor).current_position;"
-        - globals.set:  # 保存当前位置到Flash
-            id: saved_position
-            value: !lambda "return id(curtain_motor).current_position;"
 
   - platform: template
     name: "Curtain Fully Closed (Absolute -10000 steps)"
@@ -151,9 +102,6 @@ button:
         - stepper.set_target:
             id: curtain_motor
             target: 5000  # 相对移动5000步
-        - globals.set:  # 保存新位置到Flash
-            id: saved_position
-            value: !lambda "return id(saved_position) + 5000;"
 
   - platform: template
     name: "Curtain Close (Relative -5000 steps)"
@@ -165,9 +113,6 @@ button:
         - stepper.set_target:
             id: curtain_motor
             target: -5000  # 相对移动-5000步
-        - globals.set:  # 保存新位置到Flash
-            id: saved_position
-            value: !lambda "return id(saved_position) - 5000;"
 
   # 深度休眠控制按钮
   
@@ -184,9 +129,6 @@ button:
         - stepper.set_target:
             id: curtain_motor
             target: !lambda "return id(custom_steps);"  # 使用自定义步数，正向
-        - globals.set:  # 保存新位置到Flash
-            id: saved_position
-            value: !lambda "return id(saved_position) + id(custom_steps);"
         - logger.log:
             format: "Moving forward %d steps"
             args: ['id(custom_steps)']
@@ -203,29 +145,12 @@ button:
         - stepper.set_target:
             id: curtain_motor
             target: !lambda "return -id(custom_steps);"  # 使用自定义步数，反向
-        - globals.set:  # 保存新位置到Flash
-            id: saved_position
-            value: !lambda "return id(saved_position) - id(custom_steps);"
         - logger.log:
             format: "Moving backward %d steps"
             args: ['id(custom_steps)']
 
 
 number:
-  - platform: template
-    name: "Curtain Target Position (steps)"
-    min_value: -50000
-    max_value:  50000
-    step: 100
-    mode: box
-    set_action:
-      then:
-        - stepper.set_target:
-            id: curtain_motor
-            target: !lambda "return (int) x;"
-        - globals.set:  # 保存目标位置到Flash
-            id: saved_position
-            value: !lambda "return (int) x;"
 
   # 自定义步数配置
   - platform: template
@@ -246,8 +171,3 @@ number:
             format: "Custom steps set to: %d"
             args: ['(int)x']
 
-  # 深度休眠时间配置
-# -------------------- 深度休眠功能 --------------------
- 
-
-# 定时休眠检查
