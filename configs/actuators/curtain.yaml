@@ -11,6 +11,8 @@ esp32:
    type: esp-idf
 logger:
   level: DEBUG
+# web_server:
+#   port: 80
 
 # 时间同步配置（用于定时休眠）
 time:
