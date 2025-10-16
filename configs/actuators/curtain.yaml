@@ -12,17 +12,6 @@ esphome:
 deep_sleep:
   id: deep_sleep_control
 
-# 脚本：动态设置休眠时间
-script:
-  - id: enter_sleep_with_duration
-    then:
-      - lambda: |-
-          int duration_ms = id(sleep_duration_minutes) * 60 * 1000;
-          ESP_LOGI("sleep", "Entering deep sleep for %d minutes", id(sleep_duration_minutes));
-          id(deep_sleep_control).set_sleep_duration(duration_ms);
-      - deep_sleep.enter:
-          id: deep_sleep_control
-
 esp32:
   variant: esp32c3
   framework:
@@ -42,31 +31,14 @@ time:
 
     # 晚上 23 进入“夜间睡眠”，一直睡到次日 07:00
     on_time:
-      - hours: 23
+      - hours: 22
         minutes: 0
         seconds: 0
         then:
-          - lambda: |-
-              auto now = id(homeassistant_time).now();
-              if (!now.is_valid()) {
-                ESP_LOGW("sleep", "Time not synced, skip night-sleep trigger.");
-                return;
-              }
-              if (id(curtain_motor).target_position != id(curtain_motor).current_position) {
-                ESP_LOGW("sleep", "Motor is moving, skip night sleep.");
-                return;
-              }
-              // 计算从当前时刻到“次日 07:00”的分钟数
-              const int target_h = 7;
-              const int target_m = 0;
-              int now_min = now.hour * 60 + now.minute;
-              int target_min = target_h * 60 + target_m;
-              int delta_min = (target_min - now_min + 24 * 60) % (24 * 60);
-              if (delta_min == 0) delta_min = 24 * 60;  // 恰好卡点时睡满 24h 的兜底
-              id(sleep_duration_minutes) = delta_min;
-              ESP_LOGI("sleep", "Night sleep scheduled: %d minutes until %02d:%02d",
-                       delta_min, target_h, target_m);
-          - script.execute: enter_sleep_with_duration
+          - logger.log: "Entering night deep sleep"
+          - deep_sleep.enter:
+              id: deep_sleep_control
+              sleep_duration: 10h
 
 api:
 
@@ -88,27 +60,13 @@ wifi:
 globals:
   - id: saved_position
     type: int
-    restore_value: true  # 保存到Flash，重启后恢复
+    restore_value: true
     initial_value: '0'
-  
-  # 深度休眠功能配置
-  - id: sleep_duration_minutes
-    type: int
-    restore_value: true
-    initial_value: '60'    # 默认休眠60分钟
-  
-  - id: sleep_enabled
-    type: bool
-    restore_value: true
-    initial_value: 'false'  # 默认不启用自动休眠
-  
-  # 用户自定义步数
+
   - id: custom_steps
     type: int
     restore_value: true
-    initial_value: '1000'   # 默认1000步
-
-
+    initial_value: '1000'
 # -------------------- 步进电机本体 --------------------
 stepper:
   - platform: a4988
@@ -150,11 +108,7 @@ binary_sensor:
             id: saved_position
             value: '0'
 
-  - platform: template
-    name: "Deep Sleep Status"
-    id: deep_sleep_status
-    lambda: |-
-      return id(sleep_enabled);
+  
 
 # -------------------- 控制UI（HA里会出现实体） --------------------
 button:
@@ -216,11 +170,7 @@ button:
             value: !lambda "return id(saved_position) - 5000;"
 
   # 深度休眠控制按钮
-  - platform: template
-    name: "Enter Deep Sleep"
-    on_press:
-      then:
-        - script.execute: enter_sleep_with_duration
+  
 
   # 自定义步数旋转 - 正向
   - platform: template
@@ -297,46 +247,7 @@ number:
             args: ['(int)x']
 
   # 深度休眠时间配置
-  - platform: template
-    name: "Sleep Duration (Minutes)"
-    id: sleep_duration_config
-    min_value: 5
-    max_value: 480  # 最长8小时
-    step: 5
-    mode: box
-    lambda: "return id(sleep_duration_minutes);"
-    set_action:
-      then:
-        - globals.set:
-            id: sleep_duration_minutes
-            value: !lambda "return (int) x;"
-
 # -------------------- 深度休眠功能 --------------------
-switch:
-  - platform: template
-    name: "Auto Sleep Mode"
-    id: auto_sleep_switch
-    lambda: "return id(sleep_enabled);"
-    turn_on_action:
-      - globals.set:
-          id: sleep_enabled
-          value: 'true'
-      - logger.log: "Auto sleep mode enabled"
-    turn_off_action:
-      - globals.set:
-          id: sleep_enabled
-          value: 'false'
-      - logger.log: "Auto sleep mode disabled"
+ 
 
 # 定时休眠检查
-interval:
-  - interval: 30s  # 每30秒检查一次
-    then:
-      - if:
-          condition:
-            and:
-              - lambda: 'return id(sleep_enabled);'
-              - lambda: 'return millis() > 300000;'  # 运行超过5分钟后才允许休眠
-          then:
-            - logger.log: "Auto sleep triggered"
-            - script.execute: enter_sleep_with_duration
