@@ -108,7 +108,9 @@ stepper:
   - platform: a4988
     id: curtain_motor
     step_pin: GPIO4            # ← STEP
-    dir_pin: GPIO5             # ← DIR（高/低决定方向）
+    dir_pin:                   # ← DIR（高/低决定方向）
+      number: GPIO5
+      inverted: true           # 添加此行以反转旋转方向
     sleep_pin:                 # ← A4988的SLEEP pin（低电平有效）
       number: GPIO3
       inverted: true
