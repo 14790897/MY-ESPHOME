@@ -22,7 +22,6 @@ time:
       - 1.pool.ntp.org
       - 2.pool.ntp.org
 
-    # 晚上 23 进入“夜间睡眠”，一直睡到次日 07:00
     on_time:
       - hours: 22
         minutes: 0
@@ -75,51 +74,10 @@ button:
             id: curtain_motor
             target: !lambda "return id(curtain_motor).current_position;"
 
-  - platform: template
-    name: "Curtain Fully Closed (Absolute -10000 steps)"
-    on_press:
-      then:
-        # 移动到负方向的远端位置，触发限位开关
-        - stepper.set_target:
-            id: curtain_motor
-            target: -10000  # 移动到足够远的负位置
-
-  - platform: template
-    name: "Curtain Fully Open (Absolute 10000 steps)"
-    on_press:
-      then:
-        - stepper.set_target:
-            id: curtain_motor
-            target: 10000  # 绝对位置10000步
-
-  - platform: template
-    name: "Curtain Open (Relative +5000 steps)"
-    on_press:
-      then:
-        - stepper.report_position:  # 重置为0以便相对移动
-            id: curtain_motor
-            position: 0
-        - stepper.set_target:
-            id: curtain_motor
-            target: 5000  # 相对移动5000步
-
-  - platform: template
-    name: "Curtain Close (Relative -5000 steps)"
-    on_press:
-      then:
-        - stepper.report_position:  # 重置为0以便相对移动
-            id: curtain_motor
-            position: 0
-        - stepper.set_target:
-            id: curtain_motor
-            target: -5000  # 相对移动-5000步
-
-  # 深度休眠控制按钮
-  
 
   # 自定义步数旋转 - 正向
   - platform: template
-    name: "Rotate Forward (Custom Steps)"
+    name: "Curtain Open (Custom Steps)"
     icon: "mdi:rotate-right"
     on_press:
       then:
@@ -135,7 +93,7 @@ button:
 
   # 自定义步数旋转 - 反向
   - platform: template
-    name: "Rotate Backward (Custom Steps)"
+    name: "Curtain Close (Custom Steps)"
     icon: "mdi:rotate-left"
     on_press:
       then:
@@ -151,7 +109,6 @@ button:
 
 
 number:
-
   # 自定义步数配置
   - platform: template
     name: "Custom Steps"
