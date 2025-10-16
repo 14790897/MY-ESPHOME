@@ -101,6 +101,12 @@ globals:
     type: bool
     restore_value: true
     initial_value: 'false'  # 默认不启用自动休眠
+  
+  # 用户自定义步数
+  - id: custom_steps
+    type: int
+    restore_value: true
+    initial_value: '1000'   # 默认1000步
 
 
 # -------------------- 步进电机本体 --------------------
@@ -216,6 +222,44 @@ button:
       then:
         - script.execute: enter_sleep_with_duration
 
+  # 自定义步数旋转 - 正向
+  - platform: template
+    name: "Rotate Forward (Custom Steps)"
+    icon: "mdi:rotate-right"
+    on_press:
+      then:
+        - stepper.report_position:  # 重置为0以便相对移动
+            id: curtain_motor
+            position: 0
+        - stepper.set_target:
+            id: curtain_motor
+            target: !lambda "return id(custom_steps);"  # 使用自定义步数，正向
+        - globals.set:  # 保存新位置到Flash
+            id: saved_position
+            value: !lambda "return id(saved_position) + id(custom_steps);"
+        - logger.log:
+            format: "Moving forward %d steps"
+            args: ['id(custom_steps)']
+
+  # 自定义步数旋转 - 反向
+  - platform: template
+    name: "Rotate Backward (Custom Steps)"
+    icon: "mdi:rotate-left"
+    on_press:
+      then:
+        - stepper.report_position:  # 重置为0以便相对移动
+            id: curtain_motor
+            position: 0
+        - stepper.set_target:
+            id: curtain_motor
+            target: !lambda "return -id(custom_steps);"  # 使用自定义步数，反向
+        - globals.set:  # 保存新位置到Flash
+            id: saved_position
+            value: !lambda "return id(saved_position) - id(custom_steps);"
+        - logger.log:
+            format: "Moving backward %d steps"
+            args: ['id(custom_steps)']
+
 
 number:
   - platform: template
@@ -232,6 +276,25 @@ number:
         - globals.set:  # 保存目标位置到Flash
             id: saved_position
             value: !lambda "return (int) x;"
+
+  # 自定义步数配置
+  - platform: template
+    name: "Custom Steps"
+    id: custom_steps_config
+    min_value: 1
+    max_value: 10000  # 最多10000步
+    step: 100
+    mode: box
+    icon: "mdi:counter"
+    lambda: "return id(custom_steps);"
+    set_action:
+      then:
+        - globals.set:
+            id: custom_steps
+            value: !lambda "return (int) x;"
+        - logger.log:
+            format: "Custom steps set to: %d"
+            args: ['(int)x']
 
   # 深度休眠时间配置
   - platform: template
