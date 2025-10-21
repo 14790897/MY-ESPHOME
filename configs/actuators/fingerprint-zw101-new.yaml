@@ -1,0 +1,388 @@
+substitutions:
+  device_name: fingerprint-zw101
+  friendly_name: "ZW"
+  # 指纹模组串口引脚配置
+  fingerprint_rx_pin: GPIO0  # 连接到 ZW101 TX
+  fingerprint_tx_pin: GPIO1  # 连接到 ZW101 RX
+
+esphome:
+  name: ${device_name}
+  # 启动时检查模组状态
+  on_boot:
+    priority: -100  # 在网络启动后运行
+    then:
+      - delay: 2s
+      - lambda: |-
+          ESP_LOGI("main", "Checking fingerprint module...");
+          if (id(zw101_reader).handshake()) {
+            ESP_LOGI("main", "Module online, reading info");
+            id(zw101_reader).read_valid_template_count();
+            // 关闭待机灯 - 只在检测到手指时亮灯
+            id(zw101_reader).set_rgb_led(4, 0, 0);
+          } else {
+            ESP_LOGE("main", "Module offline!");
+          }
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# 包含通用配置
+<<: !include ../../common.yaml
+
+# 日志配置
+logger:
+  level: DEBUG
+  baud_rate: 115200
+
+# PWM output configuration
+output:
+  - platform: ledc
+    id: door_servo_pwm
+    pin: GPIO2            
+    frequency: 100Hz
+
+# Door servo control configuration
+servo:
+  - id: door_servo
+    output: door_servo_pwm
+    auto_detach_time: 2s    # Auto disconnect after 2s to ensure door operation completion
+    min_level: 0%       
+    max_level: 25%      
+
+
+# 引用本地 External Component
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+# UART 配置 - 用于 ZW101 指纹模组
+uart:
+  id: fingerprint_uart
+  tx_pin: ${fingerprint_tx_pin}
+  rx_pin: ${fingerprint_rx_pin}
+  baud_rate: 57600  # ZW101 默认波特率
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+
+# ZW101 指纹识别组件
+zw101:
+  id: zw101_reader
+  uart_id: fingerprint_uart
+
+# 二值传感器 - 指纹匹配状态
+binary_sensor:
+  - platform: zw101
+    zw101_id: zw101_reader
+    name: "${friendly_name} Match"
+    id: fp_match
+    on_press:
+      then:
+        - logger.log: "指纹匹配成功! 开始控制舵机开锁"
+
+        # 可选: LED反馈 - 绿色常亮表示成功
+        - lambda: |-
+            id(zw101_reader).set_rgb_led(3, 2, 200);  // 绿色常亮
+
+        # 控制舵机开锁: 旋转到开锁位置
+        - servo.write:
+            id: door_servo
+            level: 100%  # 旋转到最大角度 (开锁位置)
+
+        - logger.log: "舵机已旋转到开锁位置"
+        - delay: 2s  # 保持开锁状态2秒
+
+        # 舵机返回初始位置 (关锁)
+        - servo.write:
+            id: door_servo
+            level: 0%  # 返回初始位置 (关锁位置)
+
+        - logger.log: "舵机已返回关锁位置"
+
+        # 可选: 关闭LED
+        - delay: 1s
+        - lambda: |-
+            id(zw101_reader).set_rgb_led(4, 0, 0);  // 关闭LED
+
+# 传感器 - 匹配得分和ID
+sensor:
+  - platform: zw101
+    zw101_id: zw101_reader
+    match_score:
+      name: "${friendly_name} Match Score"
+      id: fp_score
+    match_id:
+      name: "${friendly_name} Match ID"
+      id: fp_id
+
+# 文本传感器 - 状态信息
+text_sensor:
+  - platform: zw101
+    zw101_id: zw101_reader
+    status:
+      name: "${friendly_name} Status"
+      id: fp_status
+
+# 开关 - 控制操作
+switch:
+  - platform: zw101
+    zw101_id: zw101_reader
+    enroll:
+      name: "${friendly_name} Enroll"
+      id: fp_enroll
+      # 注意: 打开此开关将启动注册流程,需要按5次指纹
+    clear:
+      name: "${friendly_name} Clear Library"
+      id: fp_clear
+      # 注意: 此操作将删除所有已注册指纹
+
+# ==================== UI可视化组件 ====================
+# 数字输入 - 用于设置参数
+number:
+  # 删除指纹ID输入
+  - platform: template
+    name: "${friendly_name} Delete ID"
+    id: delete_id_input
+    min_value: 0
+    max_value: 49
+    step: 1
+    optimistic: true
+    initial_value: 0
+
+  # LED亮度控制
+  - platform: template
+    name: "${friendly_name} LED Brightness"
+    id: led_brightness
+    min_value: 0
+    max_value: 255
+    step: 1
+    optimistic: true
+    initial_value: 100
+
+  # 自动注册超时时间
+  - platform: template
+    name: "${friendly_name} Enroll Timeout"
+    id: enroll_timeout
+    min_value: 10
+    max_value: 300
+    step: 10
+    unit_of_measurement: "s"
+    optimistic: true
+    initial_value: 60
+
+# 选择器 - LED模式和颜色
+select:
+  # LED模式选择
+  - platform: template
+    name: "${friendly_name} LED Mode"
+    id: led_mode_select
+    optimistic: true
+    options:
+      - "呼吸"
+      - "闪烁"
+      - "常亮"
+      - "关闭"
+      - "渐变开"
+      - "渐变关"
+      - "跑马灯"
+    initial_option: "关闭"
+
+  # LED颜色选择
+  - platform: template
+    name: "${friendly_name} LED Color"
+    id: led_color_select
+    optimistic: true
+    options:
+      - "蓝色"
+      - "绿色"
+      - "青色"
+      - "红色"
+      - "紫色"
+      - "黄色"
+      - "白色"
+    initial_option: "蓝色"
+
+# 按钮 - 执行操作
+button:
+  # 删除指定指纹
+  - platform: template
+    name: "${friendly_name} Delete Fingerprint"
+    id: delete_fp_button
+    on_press:
+      - lambda: |-
+          int fp_id = (int)id(delete_id_input).state;
+          ESP_LOGI("main", "Deleting fingerprint ID: %d", fp_id);
+          id(zw101_reader).delete_fingerprint(fp_id);
+
+  # 应用LED设置
+  - platform: template
+    name: "${friendly_name} Apply LED"
+    id: apply_led_button
+    on_press:
+      - lambda: |-
+          // 模式映射: 1=呼吸 2=闪烁 3=常亮 4=关闭 5=渐变开 6=渐变关 7=跑马灯
+          std::map<std::string, int> mode_map = {
+            {"呼吸", 1}, {"闪烁", 2}, {"常亮", 3}, {"关闭", 4},
+            {"渐变开", 5}, {"渐变关", 6}, {"跑马灯", 7}
+          };
+          // 颜色映射: 1=蓝 2=绿 3=青 4=红 5=紫 6=黄 7=白
+          std::map<std::string, int> color_map = {
+            {"蓝色", 1}, {"绿色", 2}, {"青色", 3}, {"红色", 4},
+            {"紫色", 5}, {"黄色", 6}, {"白色", 7}
+          };
+
+          int mode = mode_map[id(led_mode_select).state];
+          int color = color_map[id(led_color_select).state];
+          int brightness = (int)id(led_brightness).state;
+
+          ESP_LOGI("main", "Setting LED - Mode:%d Color:%d Brightness:%d (Mode: %s, Color: %s)",
+                   mode, color, brightness,
+                   id(led_mode_select).state.c_str(),
+                   id(led_color_select).state.c_str());
+          id(zw101_reader).set_rgb_led(mode, color, brightness);
+
+  # 进入休眠
+  - platform: template
+    name: "${friendly_name} Enter Sleep"
+    id: sleep_button
+    on_press:
+      - lambda: |-
+          ESP_LOGI("main", "Entering sleep mode");
+          id(zw101_reader).enter_sleep_mode();
+
+  # 自动注册
+  - platform: template
+    name: "${friendly_name} Auto Enroll"
+    id: auto_enroll_button
+    on_press:
+      - lambda: |-
+          int timeout = (int)id(enroll_timeout).state;
+          ESP_LOGI("main", "Starting auto enroll mode, timeout: %d seconds", timeout);
+          id(zw101_reader).auto_enroll_mode(timeout);
+
+  # 自动匹配 - 最佳方案
+  - platform: template
+    name: "${friendly_name} Perfect LED + Match"
+    id: auto_match_button
+    on_press:
+      - lambda: |-
+          id(zw101_reader).set_rgb_led(3, 4, 150);
+          delay(100);
+          id(zw101_reader).auto_match_mode();
+
+  # 取消自动模式
+  - platform: template
+    name: "${friendly_name} Cancel Auto"
+    id: cancel_auto_button
+    on_press:
+      - lambda: |-
+          ESP_LOGI("main", "Canceling auto mode");
+          id(zw101_reader).cancel_auto_mode();
+
+  # 检查在线状态
+  - platform: template
+    name: "${friendly_name} Check Online"
+    id: check_online_button
+    on_press:
+      - lambda: |-
+          if (id(zw101_reader).handshake()) {
+            ESP_LOGI("main", "Module is online");
+          } else {
+            ESP_LOGE("main", "Module is offline!");
+          }
+
+  # 读取指纹数量
+  - platform: template
+    name: "${friendly_name} Read Count"
+    id: read_count_button
+    on_press:
+      - lambda: |-
+          ESP_LOGI("main", "Reading fingerprint count");
+          id(zw101_reader).read_valid_template_count();
+
+# ==================== API 服务定义 ====================
+# 暴露所有高级功能到 Home Assistant
+api:
+  services:
+    # 删除指定指纹
+    - service: delete_fingerprint
+      variables:
+        fingerprint_id: int
+      then:
+        - lambda: |-
+            ESP_LOGI("main", "Deleting fingerprint ID: %d", fingerprint_id);
+            id(zw101_reader).delete_fingerprint(fingerprint_id);
+
+    # RGB LED 控制
+    # mode: 1=呼吸 2=闪烁 3=常亮 4=关闭 5=渐变开 6=渐变关 7=跑马灯
+    # color: 1=蓝 2=绿 3=青 4=红 5=紫 6=黄 7=白
+    # brightness: 0-255
+    - service: set_led
+      variables:
+        mode: int
+        color: int
+        brightness: int
+      then:
+        - lambda: |-
+            id(zw101_reader).set_rgb_led(mode, color, brightness);
+
+    # 进入休眠模式
+    - service: enter_sleep
+      then:
+        - lambda: |-
+            id(zw101_reader).enter_sleep_mode();
+
+    # 自动注册模式
+    # timeout: 超时时间(秒)
+    - service: auto_enroll
+      variables:
+        timeout: int
+      then:
+        - lambda: |-
+            id(zw101_reader).auto_enroll_mode(timeout);
+
+    # 自动匹配模式
+    - service: auto_match
+      then:
+        - lambda: |-
+            id(zw101_reader).auto_match_mode();
+
+    # 取消自动模式
+    - service: cancel_auto
+      then:
+        - lambda: |-
+            id(zw101_reader).cancel_auto_mode();
+
+    # 握手测试
+    - service: check_online
+      then:
+        - lambda: |-
+            if (id(zw101_reader).handshake()) {
+              ESP_LOGI("main", "Module is online");
+            } else {
+              ESP_LOGE("main", "Module is offline!");
+            }
+
+    # 读取指纹数量
+    - service: read_count
+      then:
+        - lambda: |-
+            id(zw101_reader).read_valid_template_count();
+
+# 使用说明 ====================
+#
+# 1. 基础操作:
+#    - 注册指纹: 打开 "ZW101 Fingerprint Enroll" 开关,按提示按5次指纹
+#    - 清空指纹库: 打开 "ZW101 Fingerprint Clear Library" 开关
+#    - 匹配指纹: 自动运行,每秒搜索一次
+#
+# 2. LED 行为 (当前配置):
+#    - 待机: 关闭 (无灯光,省电)
+#    - 匹配成功: 无灯光 (已完全禁用)
+#    - 注册中: 无灯光
+#    - 匹配失败: 无灯光
+#    - 启动: 0.5秒后自动关闭
+#
