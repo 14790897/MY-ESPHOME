@@ -47,6 +47,7 @@ sensor:
   # MPU6500加速度计和陀螺仪
   - platform: mpu6050
     address: 0x68 # MPU6500默认I2C地址，如果AD0接高电平则为0x69
+    update_interval: 50ms  # 平台级别的更新间隔
     accel_x:
       name: "MPU6500 Acceleration X"
       id: mpu6500_accel_x
@@ -106,7 +107,6 @@ sensor:
       id: mpu6500_temp
       unit_of_measurement: "°C"
       accuracy_decimals: 1
-    update_interval: 1s
 
   # 计算合成加速度
   - platform: template
@@ -119,32 +119,98 @@ sensor:
       float ay = id(mpu6500_accel_y).state;
       float az = id(mpu6500_accel_z).state;
       return sqrt(ax*ax + ay*ay + az*az);
-    update_interval: 1s
+    update_interval: 100ms
 
-  # 计算倾斜角度
+  # 计算倾斜角度（互补滤波：融合加速度计和陀螺仪）
   - platform: template
     name: "MPU6500 Tilt Angle X"
     id: mpu6500_tilt_x
     unit_of_measurement: "°"
     accuracy_decimals: 1
+    update_interval: 50ms  # 更快的更新频率以获得更好的融合效果
     lambda: |-
+      // 检查传感器数据是否可用
+      if (!id(mpu6500_accel_x).has_state() ||
+          !id(mpu6500_accel_y).has_state() ||
+          !id(mpu6500_accel_z).has_state() ||
+          !id(mpu6500_gyro_y).has_state()) {
+        return NAN;
+      }
+
+      static float angle = 0.0f;
+      static bool initialized = false;
+
+      // 读取传感器数据
       float ax = id(mpu6500_accel_x).state;
       float ay = id(mpu6500_accel_y).state;
       float az = id(mpu6500_accel_z).state;
-      return atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.14159;
-    update_interval: 1s
+      float gy = id(mpu6500_gyro_y).state;  // X轴倾角由Y轴陀螺仪角速度积分
+
+      // 从加速度计计算角度
+      float accel_angle = atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.14159;
+
+      // 首次初始化，使用加速度计角度
+      if (!initialized) {
+        angle = accel_angle;
+        initialized = true;
+        ESP_LOGI("tilt", "Tilt X initialized: %.2f°", angle);
+        return angle;
+      }
+
+      // 互补滤波参数
+      const float dt = 0.05f;      // 时间间隔 50ms
+      const float alpha = 0.98f;   // 陀螺仪权重 98%，加速度计权重 2%
+
+      // 互补滤波：融合陀螺仪积分和加速度计测量
+      // angle = α × (angle + gyro × dt) + (1-α) × accel_angle
+      angle = alpha * (angle + gy * dt) + (1.0f - alpha) * accel_angle;
+
+      return angle;
 
   - platform: template
     name: "MPU6500 Tilt Angle Y"
     id: mpu6500_tilt_y
     unit_of_measurement: "°"
     accuracy_decimals: 1
+    update_interval: 50ms  # 更快的更新频率以获得更好的融合效果
     lambda: |-
+      // 检查传感器数据是否可用
+      if (!id(mpu6500_accel_x).has_state() ||
+          !id(mpu6500_accel_y).has_state() ||
+          !id(mpu6500_accel_z).has_state() ||
+          !id(mpu6500_gyro_x).has_state()) {
+        return NAN;
+      }
+
+      static float angle = 0.0f;
+      static bool initialized = false;
+
+      // 读取传感器数据
       float ax = id(mpu6500_accel_x).state;
       float ay = id(mpu6500_accel_y).state;
       float az = id(mpu6500_accel_z).state;
-      return atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / 3.14159;
-    update_interval: 1s
+      float gx = id(mpu6500_gyro_x).state;  // Y轴倾角由X轴陀螺仪角速度积分
+
+      // 从加速度计计算角度
+      float accel_angle = atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / 3.14159;
+
+      // 首次初始化，使用加速度计角度
+      if (!initialized) {
+        angle = accel_angle;
+        initialized = true;
+        ESP_LOGI("tilt", "Tilt Y initialized: %.2f°", angle);
+        return angle;
+      }
+
+      // 互补滤波参数
+      const float dt = 0.05f;      // 时间间隔 50ms
+      const float alpha = 0.98f;   // 陀螺仪权重 98%，加速度计权重 2%
+
+      // 互补滤波：融合陀螺仪积分和加速度计测量
+      // angle = α × (angle + gyro × dt) + (1-α) × accel_angle
+      angle = alpha * (angle - gx * dt) + (1.0f - alpha) * accel_angle;  // 注意这里是 -gx
+
+      return angle;
 
     # Δa = |a| - g_base（单位换成 g，更直观）
   - platform: template
@@ -169,7 +235,7 @@ sensor:
       float ay = id(mpu6500_accel_y).state;
       float az = id(mpu6500_accel_z).state;
       float amag = sqrtf(ax*ax + ay*ay + az*az);
-      float da = fabsf(amag - 9.81f) / G;
+      float da = fabsf(amag - id(g_base)) / G;
 
       if (!inited || isnan(ema) || isnan(da)) {
       if (!isnan(da)) { ema = da; inited = true; ESP_LOGI("acc","init ema with da=%.3f", da); }
@@ -233,6 +299,11 @@ globals:
     restore_value: yes
     initial_value: "9.81" # 初始按 1g，标定后会覆盖
 
+  - id: g_calibrated
+    type: bool
+    restore_value: yes
+    initial_value: "false" # 标记是否已标定
+
 button:
   - platform: template
     name: "标定1g基线(静置按)"
@@ -251,7 +322,35 @@ button:
           float ax = sx / N, ay = sy / N, az = sz / N;
           float g = sqrtf(ax*ax + ay*ay + az*az);
           id(g_base) = g;   // 保存为新的 1g 基线
+          id(g_calibrated) = true;  // 标记已完成标定
           ESP_LOGI("calib", "g_base calibrated = %.4f m/s^2", id(g_base));
+          ESP_LOGI("calib", "Calibration completed successfully!");
+
+text_sensor:
+  - platform: template
+    name: "校准状态"
+    id: calibration_status
+    icon: mdi:check-circle
+    update_interval: 10s
+    lambda: |-
+      if (id(g_calibrated)) {
+        return {"已校准 ✓"};
+      } else {
+        return {"⚠️ 未校准 - 请先标定1g基线"};
+      }
+
+interval:
+  - interval: 30s
+    then:
+      - lambda: |-
+          // 启动后定期提醒用户标定
+          if (!id(g_calibrated)) {
+            ESP_LOGW("calib", "========================================");
+            ESP_LOGW("calib", "警告: 设备未标定!");
+            ESP_LOGW("calib", "请将设备静止放置后按下 '标定1g基线' 按钮");
+            ESP_LOGW("calib", "========================================");
+          }
+
 
 binary_sensor:
   - platform: template
