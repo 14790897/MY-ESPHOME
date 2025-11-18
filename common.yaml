@@ -17,3 +17,5 @@ ota:
 logger:
   level: INFO
 
+web_server:
+  port: 80

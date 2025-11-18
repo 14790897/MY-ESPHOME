@@ -1,0 +1,83 @@
+packages:
+  base: !include ../../common.yaml
+  
+esphome:
+  name: pm25
+  friendly_name: "PM2.5 传感器"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino 
+
+# 1. 配置串口
+uart:
+  id: uart_bus
+  tx_pin: GPIO0  # TX引脚 - 如果需要发送命令到传感器
+  rx_pin: GPIO1
+  baud_rate: 9600
+
+# 2. 创建传感器
+sensor:
+  - platform: template
+    name: "DC01 PM2.5"
+    id: pm25_val
+    unit_of_measurement: "µg/m³"
+    icon: "mdi:blur"
+    accuracy_decimals: 1 # 因为乘以0.4后会有小数，所以保留1位小数
+
+interval:
+  - interval: 200ms
+    then:
+      - lambda: |-
+          static uint8_t packet[4]; 
+          static int index = 0;     
+          uint8_t buffer[1];        
+
+          // 循环读取缓冲区数据
+          while (id(uart_bus).available()) {
+            
+            // 使用您指定的单字节读取方式
+            if (id(uart_bus).read_array(buffer, 1) > 0) {
+              uint8_t in_byte = buffer[0]; 
+
+              // 1. 找帧头 0xA5 (文档明确指定特征字节)
+              if (index == 0) {
+                if (in_byte == 0xA5) {
+                  packet[0] = in_byte;
+                  index++; 
+                }
+              }
+              // 2. 读取后续数据 (DATAH, DATAL, SUM)
+              else {
+                packet[index] = in_byte;
+                index++;
+
+                // 3. 收满4个字节，开始解码
+                if (index >= 4) {
+                  index = 0; // 重置下标
+
+                  // --- 校验计算 ---
+                  // 文档规则：校验字节之前所有字节累加和
+                  uint8_t sum = packet[0] + packet[1] + packet[2];
+
+                  // 文档规则：取累加和的“低7位” (即 & 0x7F)
+                  if (packet[3] == (sum & 0x7F)) {
+                    
+                    // --- 浓度计算 ---
+                    // 文档公式：DATAH * 128 + DATAL
+                    int raw_value = packet[1] * 128 + packet[2];
+                    
+                    // --- 系数修正 (红字重点) ---
+                    // 文档建议：K值系数一般建议 0.4
+                    float final_conc = raw_value * 0.4;
+                    
+                    id(pm25_val).publish_state(final_conc);
+                    ESP_LOGD("dc01", "Raw: %d, Final: %.1f", raw_value, final_conc);
+                  } else {
+                    ESP_LOGW("dc01", "Check Fail! Calc: %02X, Recv: %02X", (sum & 0x7F), packet[3]);
+                  }
+                }
+              }
+            }
+          }

@@ -6,7 +6,7 @@ esphome:
   friendly_name: "门锁控制器"
   
 esp32:
-  board: airm2m_core_esp32c3
+  variant: esp32c3
   framework:
     type: arduino  # 改为arduino框架，更稳定  蓝牙需要 esp-idf节省存储空间
 

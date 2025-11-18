@@ -1,0 +1,45 @@
+esphome:
+  name: hall_dual_sensor
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: esp-idf
+
+logger:
+api:
+ota:
+  platform: esphome
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# ✅ ① 数字输出 (DOUT) —— 判断是否超过阈值（磁铁靠近/远离）
+binary_sensor:
+  - platform: gpio
+    name: "霍尔开关状态"
+    pin:
+      number: GPIO2         # DOUT 接的引脚
+      mode: INPUT_PULLUP
+      inverted: true       # 如果高低反了就改成 true
+    device_class: presence  # 也可用 motion / door / window 等
+    filters:
+      - delayed_on: 5ms
+      - delayed_off: 5ms
+
+# ✅ ② 模拟输出 (AOUT) —— 读取连续磁场强度（或位置）
+sensor:
+  - platform: adc
+    name: "霍尔模拟电压"
+    pin: GPIO3              # AOUT 接的 ADC 引脚
+    attenuation: 11db       # 保证量程 0~3.3V
+    update_interval: 500ms
+    accuracy_decimals: 3
+    filters:
+      - sliding_window_moving_average:
+          window_size: 8
+          send_every: 1
+      # 如果你想直接看“磁场强度”而不是电压，可以用标定：
+      # - calibrate_linear:
+      #     - 0.5 -> 0      # 无磁场时约 0.5V
+      #     - 2.5 -> 100    # 强磁场时约 2.5V (单位可自定义，比如 mT)

@@ -1,6 +1,6 @@
 
 esphome:
-  name: bmi160-esp32c3
+  name: mpu6500-esp32c3
   platformio_options:
     monitor_speed: 115200
 
@@ -16,7 +16,7 @@ wifi:
 
   # 创建WiFi热点作为备用
   ap:
-    ssid: "BMI160-ESP32C3"
+    ssid: "MPU6500-ESP32C3"
     password: "12345678"
 
 # Home Assistant API
@@ -33,9 +33,7 @@ logger:
 # Web服务器
 web_server:
   port: 80
-  auth:
-    username: admin
-    password: !secret wifi_password
+
 
 # I2C总线配置
 i2c:
@@ -44,60 +42,60 @@ i2c:
   scan: true
   frequency: 400kHz
 
-# BMI160传感器配置
+# MPU6500传感器配置
 sensor:
-  # BMI160加速度计
-  - platform: bmi160
-    address: 0x68 # BMI160默认I2C地址，如果SDO接高电平则为0x69
+  # MPU6500加速度计和陀螺仪
+  - platform: mpu6050
+    address: 0x68 # MPU6500默认I2C地址，如果AD0接高电平则为0x69
     update_interval: 50ms  # 平台级别的更新间隔
-    acceleration_x:
-      name: "BMI160 Acceleration X"
-      id: bmi160_accel_x
+    accel_x:
+      name: "MPU6500 Acceleration X"
+      id: mpu6500_accel_x
       unit_of_measurement: "m/s²"
       accuracy_decimals: 3
       filters:
         - sliding_window_moving_average:
             window_size: 5
             send_every: 1
-    acceleration_y:
-      name: "BMI160 Acceleration Y"
-      id: bmi160_accel_y
+    accel_y:
+      name: "MPU6500 Acceleration Y"
+      id: mpu6500_accel_y
       unit_of_measurement: "m/s²"
       accuracy_decimals: 3
       filters:
         - sliding_window_moving_average:
             window_size: 5
             send_every: 1
-    acceleration_z:
-      name: "BMI160 Acceleration Z"
-      id: bmi160_accel_z
+    accel_z:
+      name: "MPU6500 Acceleration Z"
+      id: mpu6500_accel_z
       unit_of_measurement: "m/s²"
       accuracy_decimals: 3
       filters:
         - sliding_window_moving_average:
             window_size: 5
             send_every: 1
-    gyroscope_x:
-      name: "BMI160 Gyroscope X"
-      id: bmi160_gyro_x
+    gyro_x:
+      name: "MPU6500 Gyroscope X"
+      id: mpu6500_gyro_x
       unit_of_measurement: "°/s"
       accuracy_decimals: 3
       filters:
         - sliding_window_moving_average:
             window_size: 5
             send_every: 1
-    gyroscope_y:
-      name: "BMI160 Gyroscope Y"
-      id: bmi160_gyro_y
+    gyro_y:
+      name: "MPU6500 Gyroscope Y"
+      id: mpu6500_gyro_y
       unit_of_measurement: "°/s"
       accuracy_decimals: 3
       filters:
         - sliding_window_moving_average:
             window_size: 5
             send_every: 1
-    gyroscope_z:
-      name: "BMI160 Gyroscope Z"
-      id: bmi160_gyro_z
+    gyro_z:
+      name: "MPU6500 Gyroscope Z"
+      id: mpu6500_gyro_z
       unit_of_measurement: "°/s"
       accuracy_decimals: 3
       filters:
@@ -105,37 +103,37 @@ sensor:
             window_size: 5
             send_every: 1
     temperature:
-      name: "BMI160 Temperature"
-      id: bmi160_temp
+      name: "MPU6500 Temperature"
+      id: mpu6500_temp
       unit_of_measurement: "°C"
       accuracy_decimals: 1
 
   # 计算合成加速度
   - platform: template
-    name: "BMI160 Total Acceleration"
-    id: bmi160_total_accel
+    name: "MPU6500 Total Acceleration"
+    id: mpu6500_total_accel
     unit_of_measurement: "m/s²"
     accuracy_decimals: 3
     lambda: |-
-      float ax = id(bmi160_accel_x).state;
-      float ay = id(bmi160_accel_y).state;
-      float az = id(bmi160_accel_z).state;
+      float ax = id(mpu6500_accel_x).state;
+      float ay = id(mpu6500_accel_y).state;
+      float az = id(mpu6500_accel_z).state;
       return sqrt(ax*ax + ay*ay + az*az);
     update_interval: 100ms
 
   # 计算倾斜角度（互补滤波：融合加速度计和陀螺仪）
   - platform: template
-    name: "BMI160 Tilt Angle X"
-    id: bmi160_tilt_x
+    name: "MPU6500 Tilt Angle X"
+    id: mpu6500_tilt_x
     unit_of_measurement: "°"
     accuracy_decimals: 1
     update_interval: 50ms  # 更快的更新频率以获得更好的融合效果
     lambda: |-
       // 检查传感器数据是否可用
-      if (!id(bmi160_accel_x).has_state() ||
-          !id(bmi160_accel_y).has_state() ||
-          !id(bmi160_accel_z).has_state() ||
-          !id(bmi160_gyro_y).has_state()) {
+      if (!id(mpu6500_accel_x).has_state() ||
+          !id(mpu6500_accel_y).has_state() ||
+          !id(mpu6500_accel_z).has_state() ||
+          !id(mpu6500_gyro_y).has_state()) {
         return NAN;
       }
 
@@ -143,12 +141,12 @@ sensor:
       static bool initialized = false;
 
       // 读取传感器数据
-      float ax = id(bmi160_accel_x).state;
-      float ay = id(bmi160_accel_y).state;
-      float az = id(bmi160_accel_z).state;
-      float gy = id(bmi160_gyro_y).state;  // X轴倾角由Y轴陀螺仪角速度积分
+      float ax = id(mpu6500_accel_x).state;
+      float ay = id(mpu6500_accel_y).state;
+      float az = id(mpu6500_accel_z).state;
+      float gy = id(mpu6500_gyro_y).state;  // X轴倾角由Y轴陀螺仪角速度积分
 
-      // 从加速度计计算角度  ,有点难理解比较抽象  他说的这个是Y与XZ平面的夹角
+      // 从加速度计计算角度
       float accel_angle = atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.14159;
 
       // 首次初始化，使用加速度计角度
@@ -170,17 +168,17 @@ sensor:
       return angle;
 
   - platform: template
-    name: "BMI160 Tilt Angle Y"
-    id: bmi160_tilt_y
+    name: "MPU6500 Tilt Angle Y"
+    id: mpu6500_tilt_y
     unit_of_measurement: "°"
     accuracy_decimals: 1
     update_interval: 50ms  # 更快的更新频率以获得更好的融合效果
     lambda: |-
       // 检查传感器数据是否可用
-      if (!id(bmi160_accel_x).has_state() ||
-          !id(bmi160_accel_y).has_state() ||
-          !id(bmi160_accel_z).has_state() ||
-          !id(bmi160_gyro_x).has_state()) {
+      if (!id(mpu6500_accel_x).has_state() ||
+          !id(mpu6500_accel_y).has_state() ||
+          !id(mpu6500_accel_z).has_state() ||
+          !id(mpu6500_gyro_x).has_state()) {
         return NAN;
       }
 
@@ -188,10 +186,10 @@ sensor:
       static bool initialized = false;
 
       // 读取传感器数据
-      float ax = id(bmi160_accel_x).state;
-      float ay = id(bmi160_accel_y).state;
-      float az = id(bmi160_accel_z).state;
-      float gx = id(bmi160_gyro_x).state;  // Y轴倾角由X轴陀螺仪角速度积分
+      float ax = id(mpu6500_accel_x).state;
+      float ay = id(mpu6500_accel_y).state;
+      float az = id(mpu6500_accel_z).state;
+      float gx = id(mpu6500_gyro_x).state;  // Y轴倾角由X轴陀螺仪角速度积分
 
       // 从加速度计计算角度
       float accel_angle = atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / 3.14159;
@@ -222,9 +220,9 @@ sensor:
     accuracy_decimals: 3
     update_interval: 100ms
     lambda: |-
-      if (!id(bmi160_accel_x).has_state() ||
-          !id(bmi160_accel_y).has_state() ||
-          !id(bmi160_accel_z).has_state()) {
+      if (!id(mpu6500_accel_x).has_state() ||
+          !id(mpu6500_accel_y).has_state() ||
+          !id(mpu6500_accel_z).has_state()) {
       ESP_LOGD("acc", "waiting states...");
       return NAN;
       }
@@ -233,9 +231,9 @@ sensor:
       static float ema = 0.0f;
       static bool  inited = false;
 
-      float ax = id(bmi160_accel_x).state;
-      float ay = id(bmi160_accel_y).state;
-      float az = id(bmi160_accel_z).state;
+      float ax = id(mpu6500_accel_x).state;
+      float ay = id(mpu6500_accel_y).state;
+      float az = id(mpu6500_accel_z).state;
       float amag = sqrtf(ax*ax + ay*ay + az*az);
       float da = fabsf(amag - id(g_base)) / G;
 
@@ -246,7 +244,7 @@ sensor:
 
       const float alpha = 0.30f;
       ema = alpha * da + (1.0f - alpha) * ema;  //ESP_LOGI("acc", "da=%.3f, ema=%.3f", da, ema);
-      
+
       return ema;
 
   # 陀螺仪模长 |ω|（°/s），同样做 EMA
@@ -258,9 +256,9 @@ sensor:
     update_interval: 100ms # 建议加快到 100ms 更灵敏
     lambda: |-
       // 1) 先确认三轴都有值
-      if (!id(bmi160_gyro_x).has_state() ||
-          !id(bmi160_gyro_y).has_state() ||
-          !id(bmi160_gyro_z).has_state()) {
+      if (!id(mpu6500_gyro_x).has_state() ||
+          !id(mpu6500_gyro_y).has_state() ||
+          !id(mpu6500_gyro_z).has_state()) {
       ESP_LOGD("gyro", "waiting states...");
       return NAN;
       }
@@ -268,9 +266,9 @@ sensor:
       static float ema = 0.0f;
       static bool  inited = false;
 
-      float gx = id(bmi160_gyro_x).state;
-      float gy = id(bmi160_gyro_y).state;
-      float gz = id(bmi160_gyro_z).state;
+      float gx = id(mpu6500_gyro_x).state;
+      float gy = id(mpu6500_gyro_y).state;
+      float gz = id(mpu6500_gyro_z).state;
 
       // 2) 计算原始模长
       float w = sqrtf(gx*gx + gy*gy + gz*gz);
@@ -316,9 +314,9 @@ button:
           const int N = 100;
           float sx = 0, sy = 0, sz = 0;
           for (int i = 0; i < N; i++) {
-            sx += id(bmi160_accel_x).state;
-            sy += id(bmi160_accel_y).state;
-            sz += id(bmi160_accel_z).state;
+            sx += id(mpu6500_accel_x).state;
+            sy += id(mpu6500_accel_y).state;
+            sz += id(mpu6500_accel_z).state;
             delay(10); // 约1秒
           }
           float ax = sx / N, ay = sy / N, az = sz / N;

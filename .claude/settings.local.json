@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:esphome.io)",
+      "WebSearch",
+      "WebFetch(domain:developers.esphome.io)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(tree /F \"C:\\git-program\\Embedded\\MY-ESPHOME\\components\\zw101\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
