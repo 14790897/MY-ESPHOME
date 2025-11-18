@@ -148,7 +148,7 @@ sensor:
       float az = id(bmi160_accel_z).state;
       float gy = id(bmi160_gyro_y).state;  // X轴倾角由Y轴陀螺仪角速度积分
 
-      // 从加速度计计算角度
+      // 从加速度计计算角度  ,有点难理解比较抽象  他说的这个是Y与XZ平面的夹角
       float accel_angle = atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.14159;
 
       // 首次初始化，使用加速度计角度
