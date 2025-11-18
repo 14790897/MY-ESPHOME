@@ -1,0 +1,90 @@
+packages:
+  base: !include ../../common.yaml
+
+esphome:
+  name: max98357a-esp32c3
+  platformio_options:
+    monitor_speed: 115200
+  on_boot:
+    - priority: -100
+      then:
+        - delay: 1s
+        - rtttl.play:
+            rtttl: "startup:d=8,o=5,b=180:c,e,g,c6"
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# OTA更新
+ota:
+  platform: esphome
+
+# 日志配置
+logger:
+  level: INFO
+
+# I2S音频总线配置
+i2s_audio:
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO6 # LRC/WS (Word Select) 引脚
+    i2s_bclk_pin: GPIO7 # BCLK (Bit Clock) 引脚
+
+# MAX98357A 扬声器配置（用于 RTTTL 等内部音频）
+speaker:
+  - platform: i2s_audio
+    id: max98357a_speaker
+    dac_type: external
+    i2s_dout_pin: GPIO8 # DIN (Data In) 引脚
+    i2s_audio_id: i2s_out
+    sample_rate: 16000 # 采样率 (Hz)
+    bits_per_sample: 16bit # 位深度
+    channel: right # 使用右声道（MAX98357A 通常监听右声道）
+
+# 示例：播放 RTTTL 铃声
+rtttl:
+  id: rtttl_player
+  speaker: max98357a_speaker
+
+# 按钮：播放测试音
+button:
+  - platform: template
+    id: test_sound_button
+    name: play_test_sound
+    icon: mdi:music-note
+    on_press:
+      - rtttl.play:
+          rtttl: "scale_up:d=32,o=5,b=100:c,c#,d#,e,f#,g#,a#,b"
+
+  - platform: template
+    id: startup_sound_button
+    name: play_startup_sound
+    icon: mdi:bell-ring
+    on_press:
+      - rtttl.play:
+          rtttl: "two short:d=4,o=5,b=100:16e6,16e6"
+
+  - platform: template
+    id: stop_sound_button
+    name: "停止播放"
+    icon: mdi:stop
+    on_press:
+      - rtttl.stop
+
+# 系统传感器
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
