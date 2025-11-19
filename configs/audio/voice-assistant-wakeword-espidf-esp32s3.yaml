@@ -17,15 +17,7 @@ esp32:
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
-    version: recommended
-    sdkconfig_options:
-      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
-      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
-      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
-      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
-      CONFIG_SPIRAM_RODATA: "y"
   flash_size: 16MB
-
 psram:
   mode: octal
   speed: 80MHz
@@ -175,7 +167,7 @@ switch:
     name: "Wake Word"
     id: wake_word_switch
     optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
+    restore_mode: RESTORE_DEFAULT_OFF   # 启动时默认关闭
     icon: mdi:chat-sleep
     entity_category: config
     on_turn_on:

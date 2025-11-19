@@ -5,3 +5,4 @@
 secrets.yaml
 onenet_mqtt_example.sh
 secrets-onenet.yaml
+.pio-core-esphome/*

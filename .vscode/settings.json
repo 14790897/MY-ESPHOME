@@ -1,9 +1,17 @@
 {
+  // "terminal.integrated.env.windows": {
+  //   "ESPHOME_CACHE_DIR":"C:\\git-program\\Embedded\\MY-ESPHOME\\.esphome",
+  //   "Path": "C:\\Users\\13963\\.platformio\\penv\\Scripts;${env:Path}"
+  // },
+  // "files.associations": {
+  //   "thread": "cpp"
+  // }
+  
   "terminal.integrated.env.windows": {
-    "ESPHOME_CACHE_DIR":"C:\\git-program\\Embedded\\MY-ESPHOME\\.esphome",
-    "Path": "C:\\Users\\13963\\.platformio\\penv\\Scripts;${env:Path}"
-  },
-  "files.associations": {
-    "thread": "cpp"
+    "ESPHOME_CACHE_DIR": "C:\\git-program\\Embedded\\MY-ESPHOME\\.esphome",
+    //自定义esphome的pio目录
+    "PLATFORMIO_CORE_DIR": "C:\\git-program\\Embedded\\MY-ESPHOME\\.pio-core-esphome"
+    // 删掉之前那条把 Path 指到 .platformio\\penv 的配置
+    // "Path": "C:\\Users\\13963\\.platformio\\penv\\Scripts;${env:Path}"
   }
 }
