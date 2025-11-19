@@ -1,0 +1,221 @@
+packages:
+  base: !include ../../common.yaml
+
+esphome:
+  name: voice-wakeword-espidf-esp32s3
+  platformio_options:
+    build_flags:
+        - "-DBOARD_HAS_PSRAM"
+        - "-DIDF_TARGET_ESP32S3"
+    board_build.arduino.memory_type: qio_opi
+    board_build.f_flash: 80000000L
+    board_build.flash_mode: qio
+    build_unflags:
+      - "-Werror=all"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+  flash_size: 16MB
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# OTA Update
+ota:
+  platform: esphome
+
+# Logger Configuration
+logger:
+  level: INFO
+
+# I2S Audio Bus - Input (Microphone)
+i2s_audio:
+  - id: i2s_in
+    i2s_lrclk_pin: GPIO6   # WS (Word Select/LRC) pin
+    i2s_bclk_pin: GPIO7    # SCK (Bit Clock) pin
+
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO16  # WS (Word Select/LRC) pin for speaker
+    i2s_bclk_pin: GPIO17   # SCK (Bit Clock) pin for speaker
+
+# INMP441 Microphone Configuration
+microphone:
+  - platform: i2s_audio
+    id: inmp441_mic
+    adc_type: external      # External ADC
+    i2s_din_pin: GPIO8      # SD (Serial Data) pin
+    i2s_audio_id: i2s_in
+    pdm: false              # INMP441 uses standard I2S, not PDM
+    channel: left           # Channel selection (INMP441 L/R pin to GND=left, to VCC=right)
+    bits_per_sample: 32bit  # Bit depth
+    sample_rate: 16000      # Sample rate (Hz) - suitable for speech recognition
+
+# MAX98357A Speaker Configuration
+speaker:
+  - platform: i2s_audio
+    id: max98357a_speaker
+    dac_type: external
+    i2s_dout_pin: GPIO18    # DIN (Data In) pin
+    i2s_audio_id: i2s_out
+    sample_rate: 16000      # Sample rate (Hz)
+    bits_per_sample: 16bit  # Bit depth
+    channel: right          # Use right channel (MAX98357A usually listens to right channel)
+
+# Micro Wake Word - Local wake word detection (ESP-IDF)
+micro_wake_word:
+  models:
+    - okay_nabu             # Wake word model: "Okay Nabu"
+  # Available models: okay_nabu, hey_jarvis, alexa, hey_mycroft
+
+  on_wake_word_detected:
+    - light.turn_on:
+        id: status_led
+        red: 100%
+        green: 100%
+        blue: 0%
+        brightness: 100%
+        effect: "fast_pulse"
+    - voice_assistant.start:
+
+# Voice Assistant Configuration with Wake Word
+voice_assistant:
+  id: va
+  microphone: inmp441_mic
+  speaker: max98357a_speaker
+  use_wake_word: true               # Enable wake word detection
+  noise_suppression_level: 2        # Noise suppression level (0-4)
+  auto_gain: 31dBFS                 # Automatic gain control
+  volume_multiplier: 2.0            # Volume multiplier
+
+  on_listening:
+    - light.turn_on:
+        id: status_led
+        effect: "fast_pulse"
+
+  on_stt_vad_start:
+    - light.turn_on:
+        id: status_led
+        red: 0%
+        green: 100%
+        blue: 0%
+
+  on_stt_vad_end:
+    - light.turn_off: status_led
+
+  on_tts_start:
+    - light.turn_on:
+        id: status_led
+        red: 0%
+        green: 0%
+        blue: 100%
+
+  on_tts_end:
+    - light.turn_off: status_led
+
+  on_end:
+    - light.turn_off: status_led
+
+  on_error:
+    - light.turn_on:
+        id: status_led
+        red: 100%
+        green: 0%
+        blue: 0%
+    - delay: 1s
+    - light.turn_off: status_led
+
+# Status LED - WS2812 on GPIO48 (ESP-IDF compatible)
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: "Status LED"
+    rgb_order: GRB          # WS2812 uses GRB color order
+    pin: GPIO48
+    num_leds: 1             # Single LED (adjust if using LED strip)
+    chipset: ws2812         # WS2812 chipset
+    effects:
+      - pulse:
+          name: "fast_pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+      - pulse:
+          name: "slow_pulse"
+          transition_length: 1s
+          update_interval: 1s
+
+# Manual Control Buttons
+button:
+  - platform: template
+    id: start_listening_button
+    name: "Start Listening"
+    icon: mdi:microphone
+    on_press:
+      - voice_assistant.start:
+
+  - platform: template
+    id: stop_listening_button
+    name: "Stop Listening"
+    icon: mdi:microphone-off
+    on_press:
+      - voice_assistant.stop:
+
+# Wake Word Control Switch
+switch:
+  - platform: template
+    name: "Wake Word"
+    id: wake_word_switch
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    icon: mdi:chat-sleep
+    entity_category: config
+    on_turn_on:
+      - micro_wake_word.start:
+      - light.turn_on:
+          id: status_led
+          red: 0%
+          green: 50%
+          blue: 50%
+          brightness: 30%
+    on_turn_off:
+      - micro_wake_word.stop:
+      - light.turn_off: status_led
+
+# System Sensors
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+
+# Binary Sensor (Optional - Connect physical button for Push to Talk)
+# binary_sensor:
+#   - platform: gpio
+#     pin:
+#       number: GPIO9
+#       mode: INPUT_PULLUP
+#       inverted: true
+#     name: "Push to Talk"
+#     on_press:
+#       - voice_assistant.start:
+#     on_release:
+#       - voice_assistant.stop:
