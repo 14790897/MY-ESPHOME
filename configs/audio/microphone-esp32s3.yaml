@@ -1,0 +1,71 @@
+packages:
+  base: !include ../../common.yaml
+
+esphome:
+  name: microphone-esp32s3
+  platformio_options:
+    monitor_speed: 115200
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+  flash_size: 8MB
+
+# OTA Update
+ota:
+  platform: esphome
+
+# Logger Configuration
+logger:
+  level: INFO
+
+# I2S Audio Bus Configuration (Microphone Input)
+i2s_audio:
+  - id: i2s_in
+    i2s_lrclk_pin: GPIO6   # WS (Word Select/LRC) pin
+    i2s_bclk_pin: GPIO7    # SCK (Bit Clock) pin
+
+# INMP441 Microphone Configuration (Basic Version - Microphone Only)
+microphone:
+  - platform: i2s_audio
+    id: inmp441_mic
+    name: "INMP441 Microphone"
+    adc_type: external      # External ADC
+    i2s_din_pin: GPIO8      # SD (Serial Data) pin
+    i2s_audio_id: i2s_in
+    pdm: false              # INMP441 uses standard I2S, not PDM
+    channel: left           # Channel selection (INMP441 L/R pin to GND=left, to VCC=right)
+    bits_per_sample: 32bit  # Bit depth
+    sample_rate: 16000      # Sample rate (Hz)
+
+# Status LED
+status_led:
+  pin:
+    number: GPIO10
+    inverted: false
+
+# System Sensors
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+
+# Switch - Control Microphone Mute
+switch:
+  - platform: template
+    name: "Microphone Mute"
+    id: mic_mute
+    optimistic: true
+    icon: mdi:microphone-off
