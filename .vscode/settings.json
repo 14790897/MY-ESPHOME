@@ -13,5 +13,11 @@
     "PLATFORMIO_CORE_DIR": "C:\\git-program\\Embedded\\MY-ESPHOME\\.pio-core-esphome"
     // 删掉之前那条把 Path 指到 .platformio\\penv 的配置
     // "Path": "C:\\Users\\13963\\.platformio\\penv\\Scripts;${env:Path}"
+  },
+  "files.exclude": {
+    "**/*.rpyc": true,
+    "**/*.rpa": true,
+    "**/*.rpymc": true,
+    "**/cache/": true
   }
 }

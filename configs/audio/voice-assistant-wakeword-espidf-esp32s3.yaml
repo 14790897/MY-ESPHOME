@@ -65,11 +65,19 @@ speaker:
 
 # Micro Wake Word - Local wake word detection (ESP-IDF)
 micro_wake_word:
+  id: mww
+  microphone:
+    microphone: inmp441_mic
+    channels: 0
+    gain_factor: 4
   models:
-    - okay_nabu             # Wake word model: "Okay Nabu"
-  # Available models: okay_nabu, hey_jarvis, alexa, hey_mycroft
+    - model: okay_nabu
+      id: okay_nabu_model
+    - model: hey_mycroft
+      id: hey_mycroft_model
 
   on_wake_word_detected:
+  # yellow
     - light.turn_on:
         id: status_led
         red: 100%
@@ -78,10 +86,15 @@ micro_wake_word:
         brightness: 100%
         effect: "fast_pulse"
     - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+  # Available models: okay_nabu, hey_jarvis, alexa, hey_mycroft
+
 
 # Voice Assistant Configuration with Wake Word
 voice_assistant:
   id: va
+  micro_wake_word: mww
   microphone: inmp441_mic
   speaker: max98357a_speaker
   use_wake_word: true               # Enable wake word detection
@@ -92,6 +105,9 @@ voice_assistant:
   on_listening:
     - light.turn_on:
         id: status_led
+        red: 0%
+        green: 100%
+        blue: 0%
         effect: "fast_pulse"
 
   on_stt_vad_start:
@@ -100,6 +116,7 @@ voice_assistant:
         red: 0%
         green: 100%
         blue: 0%
+        effect: none
 
   on_stt_vad_end:
     - light.turn_off: status_led
@@ -110,6 +127,7 @@ voice_assistant:
         red: 0%
         green: 0%
         blue: 100%
+        effect: none
 
   on_tts_end:
     - light.turn_off: status_led
@@ -123,6 +141,7 @@ voice_assistant:
         red: 100%
         green: 0%
         blue: 0%
+        effect: none
     - delay: 1s
     - light.turn_off: status_led
 
@@ -131,9 +150,9 @@ light:
   - platform: esp32_rmt_led_strip
     id: status_led
     name: "Status LED"
-    rgb_order: GRB          # WS2812 uses GRB color order
+    rgb_order: GRB          # 尝试 BGR 顺序
     pin: GPIO48
-    num_leds: 1             # Single LED (adjust if using LED strip)
+    num_leds: 1             # Single LED 
     chipset: ws2812         # WS2812 chipset
     effects:
       - pulse:
@@ -167,7 +186,7 @@ switch:
     name: "Wake Word"
     id: wake_word_switch
     optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF   # 启动时默认关闭
+    restore_mode: RESTORE_DEFAULT_ON
     icon: mdi:chat-sleep
     entity_category: config
     on_turn_on:
@@ -203,7 +222,7 @@ text_sensor:
 # binary_sensor:
 #   - platform: gpio
 #     pin:
-#       number: GPIO9
+#       number: GPIO0
 #       mode: INPUT_PULLUP
 #       inverted: true
 #     name: "Push to Talk"

@@ -192,15 +192,21 @@ text_sensor:
     ssid:
       name: "Connected SSID"
 
-# Binary Sensor (Optional - Connect physical button for Push to Talk)
+# Binary Sensor (Optional - Connect physical button for Toggle Talk)
 binary_sensor:
   - platform: gpio
     pin:
       number: GPIO0
       mode: INPUT_PULLUP
       inverted: true
-    name: "Push to Talk"
-    on_press:
-      - voice_assistant.start_continuous:
-    on_release:
-      - voice_assistant.stop:
+    name: "Toggle Talk"
+    on_click:
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then:
+            - voice_assistant.stop:
+            - script.stop: listening_timeout
+          else:
+            - voice_assistant.start_continuous:
+            - script.execute: listening_timeout
