@@ -76,14 +76,19 @@ voice_assistant:
   on_listening:
     - light.turn_on:
         id: status_led
+        red: 0%
+        green: 100%
+        blue: 0%
         effect: "fast_pulse"
 
   on_stt_vad_start:
+    - script.stop: listening_timeout  # 检测到语音，取消超时
     - light.turn_on:
         id: status_led
         red: 0%
         green: 100%
         blue: 0%
+        effect: none
 
   on_stt_vad_end:
     - light.turn_off: status_led
@@ -94,19 +99,29 @@ voice_assistant:
         red: 0%
         green: 0%
         blue: 100%
+        effect: none
 
   on_tts_end:
-    - light.turn_off: status_led
+    - script.execute: listening_timeout  # 重新启动超时计时器
+    - light.turn_on:
+        id: status_led
+        red: 0%
+        green: 100%
+        blue: 0%
+        effect: "fast_pulse"  # 显示继续监听状态
 
   on_end:
+    - script.stop: listening_timeout  # 正常结束，取消超时
     - light.turn_off: status_led
 
   on_error:
+    - script.stop: listening_timeout  # 错误发生，取消超时
     - light.turn_on:
         id: status_led
         red: 100%
         green: 0%
         blue: 0%
+        effect: none
     - delay: 1s
     - light.turn_off: status_led
 
@@ -136,7 +151,8 @@ button:
     name: "Start Listening"
     icon: mdi:microphone
     on_press:
-      - voice_assistant.start:
+      - voice_assistant.start_continuous:
+      - script.execute: listening_timeout
 
   - platform: template
     id: stop_listening_button
@@ -144,6 +160,20 @@ button:
     icon: mdi:microphone-off
     on_press:
       - voice_assistant.stop:
+      - script.stop: listening_timeout
+
+# Auto-stop script (60s timeout for continuous conversation)
+script:
+  - id: listening_timeout
+    mode: restart
+    then:
+      - delay: 60s
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then:
+            - voice_assistant.stop:
+            - light.turn_off: status_led
 
 # System Sensors
 sensor:
@@ -161,3 +191,16 @@ text_sensor:
       name: "IP Address"
     ssid:
       name: "Connected SSID"
+
+# Binary Sensor (Optional - Connect physical button for Push to Talk)
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Push to Talk"
+    on_press:
+      - voice_assistant.start_continuous:
+    on_release:
+      - voice_assistant.stop:
