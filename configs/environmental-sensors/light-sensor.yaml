@@ -1,0 +1,145 @@
+esphome:
+  name: light-sensor
+  platformio_options:
+    monitor_speed: 115200
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # 创建WiFi热点作为备用
+  ap:
+    ssid: "Light-Sensor"
+    password: "12345678"
+
+# Home Assistant API
+api:
+
+# OTA更新
+ota:
+  platform: esphome
+
+# 日志配置
+logger:
+  level: INFO
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
+
+# 光敏电阻传感器配置
+sensor:
+  # ADC原始读数 (0-4095)
+  - platform: adc
+    pin: GPIO3  # 根据实际接线调整 
+    name: "Light Sensor Raw"
+    id: light_sensor_raw
+    update_interval: 1s
+    attenuation: 11db  # 支持0-3.3V输入
+    accuracy_decimals: 0
+    unit_of_measurement: ""
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  # 转换为电压 (0-3.3V)
+  - platform: template
+    name: "Light Sensor Voltage"
+    id: light_sensor_voltage
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    lambda: |-
+      float raw = id(light_sensor_raw).state;
+      return raw * 3.3 / 4095.0;
+    update_interval: 1s
+
+  # 转换为光照百分比 (0-100%)
+  - platform: template
+    name: "Light Sensor Percentage"
+    id: light_sensor_percentage
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    icon: "mdi:brightness-6"
+    lambda: |-
+      float raw = id(light_sensor_raw).state;
+      return (raw / 4095.0) * 100.0;
+    update_interval: 1s
+
+  # 估算光照强度 (Lux)
+  # 注意: 这是粗略估算，需要根据实际光敏电阻校准
+  - platform: template
+    name: "Light Sensor Lux"
+    id: light_sensor_lux
+    unit_of_measurement: "lx"
+    accuracy_decimals: 0
+    device_class: illuminance
+    state_class: measurement
+    icon: "mdi:brightness-5"
+    lambda: |-
+      float raw = id(light_sensor_raw).state;
+      float voltage = raw * 3.3 / 4095.0;
+      
+      // 粗略的指数映射 (需要根据实际环境校准)
+      // 暗光: 0-10 lx
+      // 室内: 100-500 lx  
+      // 明亮: 1000-10000 lx
+      if (voltage < 0.1) return 0;
+      float lux = pow(10, (voltage / 3.3) * 4);  // 0.1-10000范围
+      return lux;
+    update_interval: 1s
+
+  # 系统运行时间
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# 光照等级分类
+text_sensor:
+  - platform: template
+    name: "Light Level"
+    id: light_level
+    icon: "mdi:theme-light-dark"
+    lambda: |-
+      float pct = id(light_sensor_percentage).state;
+      if (pct < 10) return {"Very Dark"};
+      else if (pct < 30) return {"Dark"};
+      else if (pct < 50) return {"Dim"};
+      else if (pct < 70) return {"Moderate"};
+      else if (pct < 90) return {"Bright"};
+      else return {"Very Bright"};
+    update_interval: 1s
+
+# 二值传感器 - 暗光检测
+binary_sensor:
+  - platform: template
+    name: "Dark Detection"
+    id: dark_detection
+    device_class: light
+    lambda: |-
+      float pct = id(light_sensor_percentage).state;
+      return pct < 20;  // 光照低于20%时触发
+    filters:
+      - delayed_on: 2s   # 去抖动
+      - delayed_off: 5s
+
+  - platform: template
+    name: "Bright Detection"
+    id: bright_detection
+    device_class: light
+    lambda: |-
+      float pct = id(light_sensor_percentage).state;
+      return pct > 80;  // 光照高于80%时触发
+    filters:
+      - delayed_on: 2s
+      - delayed_off: 5s
+
