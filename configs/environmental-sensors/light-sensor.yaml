@@ -119,29 +119,7 @@ text_sensor:
       else return {"Very Bright"};              // >85%: 强光
     update_interval: 1s
 
-# 二值传感器 - 暗光检测
-binary_sensor:
-  - platform: template
-    name: "Dark Detection"
-    id: dark_detection
-    device_class: light
-    lambda: |-
-      float pct = id(light_sensor_percentage).state;
-      return pct < 30;  // 光照低于30%时触发
-    filters:
-      - delayed_on: 2s   # 去抖动
-      - delayed_off: 5s
 
-  - platform: template
-    name: "Bright Detection"
-    id: bright_detection
-    device_class: light
-    lambda: |-
-      float pct = id(light_sensor_percentage).state;
-      return pct > 85;  // 光照高于85%时触发
-    filters:
-      - delayed_on: 2s
-      - delayed_off: 5s
 
 # HTTP RESTful API 端点
 # 其他设备可通过 HTTP GET 请求获取数据
