@@ -38,30 +38,19 @@ web_server:
 
 # 光敏电阻传感器配置
 sensor:
-  # ADC原始读数 (0-4095)
+  # ADC 读取电压 (0-3.3V)
   - platform: adc
     pin: GPIO3  # 根据实际接线调整 
-    name: "Light Sensor Raw"
-    id: light_sensor_raw
+    name: "Light Sensor Voltage"
+    id: light_sensor_voltage
     update_interval: 1s
-    attenuation: 11db  # 支持0-3.3V输入
-    accuracy_decimals: 0
-    unit_of_measurement: ""
+    attenuation: 11db  # 支持0-3.3V输入，自动转换为电压
+    accuracy_decimals: 2
+    unit_of_measurement: "V"
     filters:
       - sliding_window_moving_average:
           window_size: 10
           send_every: 1
-
-  # 转换为电压 (0-3.3V)
-  - platform: template
-    name: "Light Sensor Voltage"
-    id: light_sensor_voltage
-    unit_of_measurement: "V"
-    accuracy_decimals: 2
-    lambda: |-
-      float raw = id(light_sensor_raw).state;
-      return raw * 3.3 / 4095.0;
-    update_interval: 1s
 
   # 转换为光照百分比 (0-100%)
   - platform: template
@@ -71,8 +60,17 @@ sensor:
     accuracy_decimals: 1
     icon: "mdi:brightness-6"
     lambda: |-
-      float raw = id(light_sensor_raw).state;
-      return (raw / 4095.0) * 100.0;
+      float voltage = id(light_sensor_voltage).state;
+      
+      // 光敏电阻特性: 光越强，电压越低
+      // 暗光: ~3.3V -> 0%
+      // 开灯: ~1.7V -> 48%
+      // 强光: ~0.5V -> 85%
+      float pct = (1.0 - voltage / 3.3) * 100.0;
+      
+      // 输出调试信息
+      ESP_LOGI("light", "Voltage: %.2fV, Percentage: %.1f%%", voltage, pct);
+      return pct;
     update_interval: 1s
 
   # 估算光照强度 (Lux)
@@ -86,15 +84,17 @@ sensor:
     state_class: measurement
     icon: "mdi:brightness-5"
     lambda: |-
-      float raw = id(light_sensor_raw).state;
-      float voltage = raw * 3.3 / 4095.0;
+      float voltage = id(light_sensor_voltage).state;
+      
+      // 光敏电阻特性: 光越强，电压越低，需要反转
+      float inverted_voltage = 3.3 - voltage;
       
       // 粗略的指数映射 (需要根据实际环境校准)
       // 暗光: 0-10 lx
       // 室内: 100-500 lx  
       // 明亮: 1000-10000 lx
-      if (voltage < 0.1) return 0;
-      float lux = pow(10, (voltage / 3.3) * 4);  // 0.1-10000范围
+      if (inverted_voltage < 0.1) return 0;
+      float lux = pow(10, (inverted_voltage / 3.3) * 4);  // 0.1-10000范围
       return lux;
     update_interval: 1s
 
@@ -111,12 +111,12 @@ text_sensor:
     icon: "mdi:theme-light-dark"
     lambda: |-
       float pct = id(light_sensor_percentage).state;
-      if (pct < 10) return {"Very Dark"};
-      else if (pct < 30) return {"Dark"};
-      else if (pct < 50) return {"Dim"};
-      else if (pct < 70) return {"Moderate"};
-      else if (pct < 90) return {"Bright"};
-      else return {"Very Bright"};
+      if (pct < 10) return {"Very Dark"};      // <10%: 完全黑暗
+      else if (pct < 30) return {"Dark"};       // 10-30%: 暗光
+      else if (pct < 50) return {"Dim"};        // 30-50%: 昏暗 (开灯约48%)
+      else if (pct < 70) return {"Moderate"};   // 50-70%: 中等
+      else if (pct < 85) return {"Bright"};     // 70-85%: 明亮
+      else return {"Very Bright"};              // >85%: 强光
     update_interval: 1s
 
 # 二值传感器 - 暗光检测
@@ -127,7 +127,7 @@ binary_sensor:
     device_class: light
     lambda: |-
       float pct = id(light_sensor_percentage).state;
-      return pct < 20;  // 光照低于20%时触发
+      return pct < 30;  // 光照低于30%时触发
     filters:
       - delayed_on: 2s   # 去抖动
       - delayed_off: 5s
@@ -138,8 +138,14 @@ binary_sensor:
     device_class: light
     lambda: |-
       float pct = id(light_sensor_percentage).state;
-      return pct > 80;  // 光照高于80%时触发
+      return pct > 85;  // 光照高于85%时触发
     filters:
       - delayed_on: 2s
       - delayed_off: 5s
 
+# HTTP RESTful API 端点
+# 其他设备可通过 HTTP GET 请求获取数据
+# 示例:
+#   curl http://light-sensor.local/sensor/light_sensor_percentage
+#   curl http://light-sensor.local/sensor/light_sensor_lux
+#   curl http://light-sensor.local/text_sensor/light_level
