@@ -1,0 +1,237 @@
+esphome:
+  name: temt6000-sensor
+  platformio_options:
+    monitor_speed: 115200
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+# WiFi配置
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # 创建WiFi热点作为备用
+  ap:
+    ssid: "TEMT6000-Sensor"
+    password: "12345678"
+
+# Home Assistant API
+api:
+
+# OTA更新
+ota:
+  platform: esphome
+
+# 日志配置
+logger:
+  level: INFO
+
+# UDP 广播配置
+# 向局域网广播光照数据，其他设备可监听 UDP 端口接收
+udp:
+  id: udp_broadcast
+  port: 8888  # UDP 发送端口
+
+# Web服务器
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret wifi_password
+
+# TEMT6000 光照传感器配置
+# 硬件接线 (3.3V 供电):
+#   - TEMT6000 VCC (V) → ESP32 3.3V
+#   - TEMT6000 GND (G) → ESP32 GND
+#   - TEMT6000 OUT (S) → ESP32 GPIO3
+# 
+# 传感器特性:
+#   - 光谱峰值: 570nm (绿光)
+#   - 输出: 光越强，电压越高（0-3.3V 线性）
+#   - 响应时间: < 1ms
+sensor:
+  # ADC 读取电压 (0-3.3V)
+  - platform: adc
+    pin: GPIO3  # 根据实际接线调整
+    name: "TEMT6000 Voltage"
+    id: temt6000_voltage
+    update_interval: 1s
+    attenuation: 12db  # 支持0-3.3V输入（新版 ESPHome 使用 12db）
+    accuracy_decimals: 3
+    unit_of_measurement: "V"
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  # 转换为光照百分比 (0-100%)
+  - platform: template
+    name: "TEMT6000 Percentage"
+    id: temt6000_percentage
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    icon: "mdi:brightness-6"
+    lambda: |-
+      float voltage = id(temt6000_voltage).state;
+      
+      // TEMT6000 特性: 光越强，电压越高（线性）
+      // 暗光: ~0V -> 0%
+      // 室内: ~1.5V -> 45%
+      // 明亮: ~3.3V -> 100%
+      float pct = (voltage / 3.3) * 100.0;
+      
+      // 输出调试信息
+      ESP_LOGI("temt6000", "Voltage: %.3fV, Percentage: %.1f%%", voltage, pct);
+      return pct;
+    update_interval: 1s
+    on_value:
+      then:
+        - lambda: |-
+            // UDP 广播光照数据（JSON 格式）
+            float pct = id(temt6000_percentage).state;
+            float lux = id(temt6000_lux).state;
+            float voltage = id(temt6000_voltage).state;
+            char json_msg[200];
+            snprintf(json_msg, sizeof(json_msg),
+              "{\"device\":\"temt6000\",\"percentage\":%.1f,\"lux\":%.1f,\"voltage\":%.3f}",
+              pct, lux, voltage);
+            
+            // 广播到 255.255.255.255:8888
+            auto udp = new WiFiUDP();
+            udp->beginPacket("255.255.255.255", 8888);
+            udp->write((const uint8_t*)json_msg, strlen(json_msg));
+            udp->endPacket();
+            delete udp;
+            
+            ESP_LOGI("udp", "Broadcast: %s", json_msg);
+
+  # 估算光照强度 (Lux)
+  # TEMT6000 规格: 10 µA/lux @ 570nm
+  # 使用 10kΩ 负载电阻时: 1 lux ≈ 0.1 mV
+  - platform: template
+    name: "TEMT6000 Lux"
+    id: temt6000_lux
+    unit_of_measurement: "lx"
+    accuracy_decimals: 1
+    device_class: illuminance
+    state_class: measurement
+    icon: "mdi:brightness-5"
+    lambda: |-
+      float voltage = id(temt6000_voltage).state;
+      
+      // TEMT6000 输出特性曲线（假设使用 10kΩ 负载电阻）
+      // 根据数据手册: Iout = 10 µA/lux
+      // V = I × R = 10 µA × 10kΩ = 0.1 V per 1000 lux
+      // 因此: lux = voltage × 10000
+      
+      // 实际校准公式（可根据实际测量调整）
+      float lux;
+      if (voltage < 0.01) {
+        // 极暗（< 0.01V）
+        lux = 0;
+      } else if (voltage < 1.0) {
+        // 0.01-1V: 0-500 lx (暗光到室内)
+        lux = voltage * 500;
+      } else if (voltage < 2.0) {
+        // 1-2V: 500-2000 lx (室内到明亮)
+        lux = 500 + (voltage - 1.0) * 1500;
+      } else {
+        // 2-3.3V: 2000-10000 lx (明亮到极亮)
+        lux = 2000 + (voltage - 2.0) * 6000;
+      }
+      
+      return lux;
+    update_interval: 1s
+
+  # 电流输出计算 (µA)
+  - platform: template
+    name: "TEMT6000 Current"
+    id: temt6000_current
+    unit_of_measurement: "µA"
+    accuracy_decimals: 2
+    icon: "mdi:current-dc"
+    lambda: |-
+      float voltage = id(temt6000_voltage).state;
+      // 假设负载电阻为 10kΩ
+      // I = V / R = V / 10000 (单位: A)
+      // 转换为 µA: × 1000000
+      float current_ua = (voltage / 10000.0) * 1000000.0;
+      return current_ua;
+    update_interval: 1s
+
+  # 系统运行时间
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# 光照等级分类
+text_sensor:
+  - platform: template
+    name: "Light Level"
+    id: light_level
+    icon: "mdi:theme-light-dark"
+    lambda: |-
+      float pct = id(temt6000_percentage).state;
+      if (pct < 5) return {"Very Dark"};       // <5%: 完全黑暗
+      if (pct < 20) return {"Dark"};           // 5-20%: 暗光
+      if (pct < 40) return {"Dim"};            // 20-40%: 昏暗
+      if (pct < 60) return {"Moderate"};       // 40-60%: 中等
+      if (pct < 80) return {"Bright"};         // 60-80%: 明亮
+      return {"Very Bright"};                  // >80%: 强光
+    update_interval: 1s
+
+# 二值传感器 - 光照检测
+binary_sensor:
+  - platform: template
+    name: "Dark Detection"
+    id: dark_detection
+    lambda: |-
+      float pct = id(temt6000_percentage).state;
+      return pct < 20;  // 光照低于20%时触发（ON表示暗）
+    filters:
+      - delayed_on: 2s   # 去抖动
+      - delayed_off: 5s
+
+  - platform: template
+    name: "Bright Detection"
+    id: bright_detection
+    lambda: |-
+      float pct = id(temt6000_percentage).state;
+      return pct > 80;  // 光照高于80%时触发（ON表示亮）
+    filters:
+      - delayed_on: 2s
+      - delayed_off: 5s
+
+# HTTP RESTful API 端点
+# 其他设备可通过 HTTP GET 请求获取数据
+# 示例:
+#   curl http://temt6000-sensor.local/sensor/temt6000_percentage
+#   curl http://temt6000-sensor.local/sensor/temt6000_lux
+#   curl http://temt6000-sensor.local/sensor/temt6000_current
+#   curl http://temt6000-sensor.local/text_sensor/light_level
+
+# UDP 广播说明
+# 每秒自动向局域网广播 JSON 数据到 255.255.255.255:8888
+# 数据格式: {"device":"temt6000","percentage":45.2,"lux":650.3,"voltage":1.492}
+#
+# 接收示例 (Python):
+#   import socket
+#   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#   sock.bind(("0.0.0.0", 8888))
+#   while True:
+#       data, addr = sock.recvfrom(1024)
+#       print(f"从 {addr} 收到: {data.decode()}")
+#
+# 接收示例 (ESP32):
+#   WiFiUDP udp;
+#   udp.begin(8888);
+#   char packet[200];
+#   int len = udp.parsePacket();
+#   if (len) {
+#     udp.read(packet, len);
+#     packet[len] = 0;
+#     Serial.println(packet);
+#   }
