@@ -79,7 +79,7 @@ sensor:
     name: "Light Sensor Lux"
     id: light_sensor_lux
     unit_of_measurement: "lx"
-    accuracy_decimals: 0
+    accuracy_decimals: 1
     device_class: illuminance
     state_class: measurement
     icon: "mdi:brightness-5"
@@ -89,12 +89,26 @@ sensor:
       // 光敏电阻特性: 光越强，电压越低，需要反转
       float inverted_voltage = 3.3 - voltage;
       
-      // 粗略的指数映射 (需要根据实际环境校准)
-      // 暗光: 0-10 lx
-      // 室内: 100-500 lx  
-      // 明亮: 1000-10000 lx
-      if (inverted_voltage < 0.1) return 0;
-      float lux = pow(10, (inverted_voltage / 3.3) * 4);  // 0.1-10000范围
+      // 使用更平滑的映射函数（二次函数 + 线性）
+      // 暗光: 0V -> 0 lx
+      // 开灯: 1.6V (48%) -> ~400 lx
+      // 强光: 2.8V (85%) -> ~2000 lx
+      // 极亮: 3.3V -> ~3000 lx
+      if (inverted_voltage < 0.05) return 0;
+      
+      // 分段映射，提供更细致的渐变
+      float lux;
+      if (inverted_voltage < 1.0) {
+        // 0-1V: 0-100 lx (暗光区，线性)
+        lux = inverted_voltage * 100;
+      } else if (inverted_voltage < 2.0) {
+        // 1-2V: 100-600 lx (室内光，缓慢增长)
+        lux = 100 + (inverted_voltage - 1.0) * 500;
+      } else {
+        // 2-3.3V: 600-3000 lx (明亮区，加速增长)
+        lux = 600 + pow(inverted_voltage - 2.0, 1.5) * 1200;
+      }
+      
       return lux;
     update_interval: 1s
 
