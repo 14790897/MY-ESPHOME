@@ -50,8 +50,9 @@ web_server:
 # 
 # 传感器特性:
 #   - 光谱峰值: 570nm (绿光)
-#   - 输出: 光越强，电压越高（0-3.3V 线性）
+#   - 输出: 光越强，电压越高（0-2.915V 线性）
 #   - 响应时间: < 1ms
+#   - 注意: 模块内置三极管缓冲电路，最大输出 ~2.915V（非 3.3V）
 sensor:
   # ADC 读取电压 (0-3.3V)
   - platform: adc
@@ -78,10 +79,13 @@ sensor:
       float voltage = id(temt6000_voltage).state;
       
       // TEMT6000 特性: 光越强，电压越高（线性）
+      // 模块三极管压降导致最大电压约 2.915V
       // 暗光: ~0V -> 0%
-      // 室内: ~1.5V -> 45%
-      // 明亮: ~3.3V -> 100%
-      float pct = (voltage / 3.3) * 100.0;
+      // 室内: ~1.5V -> 51%
+      // 明亮: ~2.915V -> 100%
+      const float MAX_VOLTAGE = 2.915;  // 实测最大电压
+      float pct = (voltage / MAX_VOLTAGE) * 100.0;
+      if (pct > 100.0) pct = 100.0;  // 限幅保护
       
       // 输出调试信息
       ESP_LOGI("temt6000", "Voltage: %.3fV, Percentage: %.1f%%", voltage, pct);
@@ -127,7 +131,8 @@ sensor:
       // V = I × R = 10 µA × 10kΩ = 0.1 V per 1000 lux
       // 因此: lux = voltage × 10000
       
-      // 实际校准公式（可根据实际测量调整）
+      // 实际校准公式（三极管压降后最大 2.915V）
+      const float MAX_VOLTAGE = 2.915;
       float lux;
       if (voltage < 0.01) {
         // 极暗（< 0.01V）
@@ -139,8 +144,9 @@ sensor:
         // 1-2V: 500-2000 lx (室内到明亮)
         lux = 500 + (voltage - 1.0) * 1500;
       } else {
-        // 2-3.3V: 2000-10000 lx (明亮到极亮)
-        lux = 2000 + (voltage - 2.0) * 6000;
+        // 2-2.915V: 2000-10000 lx (明亮到极亮)
+        lux = 2000 + (voltage - 2.0) * 8743;  // 8743 = 8000/(2.915-2.0)
+        if (lux > 10000) lux = 10000;  // 限幅
       }
       
       return lux;
@@ -155,8 +161,9 @@ sensor:
     icon: "mdi:current-dc"
     lambda: |-
       float voltage = id(temt6000_voltage).state;
-      // 假设负载电阻为 10kΩ
-      // I = V / R = V / 10000 (单位: A)
+      // 注意: 模块有三极管缓冲，电压非直接负载电阻分压
+      // 此电流为估算值，实际需测量 TEMT6000 引脚电流
+      // 假设等效负载 10kΩ: I ≈ V / R
       // 转换为 µA: × 1000000
       float current_ua = (voltage / 10000.0) * 1000000.0;
       return current_ua;
