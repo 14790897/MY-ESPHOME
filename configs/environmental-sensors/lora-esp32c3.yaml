@@ -1,0 +1,84 @@
+esphome:
+  name: lora-sender
+  platformio_options:
+    monitor_speed: 115200
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "LoRa-Sender"
+    password: "12345678"
+
+api:
+ota:
+  platform: esphome
+logger:
+  level: INFO
+  baud_rate: 0 # 重要：禁用日志占用硬件串口，防止干扰LoRa
+
+web_server:
+  port: 80
+
+# ---------------------------------------------------------
+# 核心修改 1: 配置 UART (串口)
+# ---------------------------------------------------------
+uart:
+  id: uart_bus
+  tx_pin: GPIO0 
+  rx_pin: GPIO1  
+  baud_rate: 9600 # 也就是你的LoRa模块的波特率，通常是9600
+  stop_bits: 1
+
+# ---------------------------------------------------------
+# 核心修改 2: 发送逻辑
+# ---------------------------------------------------------
+# 这里的 Interval 替代了你之前的 Pulse 定时器
+interval:
+  - interval: 1s  # 每1秒发送一次
+    then:
+      - if:
+          condition:
+            - switch.is_on: auto_send_mode
+          then:
+            # 发送特定的数据包
+            # 这里的逻辑是：
+            # F6: 让你看到你熟悉的那个高电平值
+            # FF: 确保最后一位是 FF，这样接收端如果用最后一位算RSSI，数值会很高
+            - uart.write: [0x1F, 0x1F, 0x1F, 0xFF]
+            - logger.log: "Sent packet: F6 F6 F6 FF"
+
+# 控制开关
+switch:
+  - platform: template
+    name: "Auto Send Mode"
+    id: auto_send_mode
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - logger.log: "Start LoRa Sending..."
+    turn_off_action:
+      - logger.log: "Stop LoRa Sending."
+
+# 手动发送按钮 (调试用)
+button:
+  - platform: template
+    name: "Send High Signal (FF)"
+    icon: "mdi:send"
+    on_press:
+      # 手动发送一串 FF，这是理论上信号最强、电平最高的数据
+      - uart.write: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+      - logger.log: "Sent manual HIGH packet"
+
+  - platform: template
+    name: "Send Pattern (AABB)"
+    icon: "mdi:code-array"
+    on_press:
+      # 发送特征明显的数据，方便你在接收端一眼认出
+      - uart.write: [0xAA, 0xBB, 0xCC, 0xFF]
+      - logger.log: "Sent pattern packet"

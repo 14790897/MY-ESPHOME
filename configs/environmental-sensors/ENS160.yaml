@@ -18,12 +18,14 @@ ota:
 
 # 日志配置
 logger:
-  level: INFO
-
+  level: debug
+web_server:
+  port: 80
 i2c:
   sda: GPIO4
   scl: GPIO5
   scan: true
+  frequency: 50kHz
 # 温湿度传感器用于补偿（可选，提升准确度）
 sensor:
   - platform: aht10 # AHT10/20/21 通用组件
@@ -33,7 +35,7 @@ sensor:
     humidity:
       name: "ENV Humidity"
       id: h_env
-    address: 0x38
+    # address: 0x38
     update_interval: 60s
 
   - platform: ens160_i2c
