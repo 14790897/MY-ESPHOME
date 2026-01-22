@@ -1,4 +1,3 @@
-#唤醒词目前有bug，建议使用voice-assistant-esp32s3.yaml配置文件进行测试
 packages:
   base: !include ../../common.yaml
 
@@ -13,6 +12,12 @@ esphome:
     board_build.flash_mode: qio
     build_unflags:
       - "-Werror=all"
+  on_boot:
+    priority: -100  # 在所有组件初始化完成后执行
+    then:
+      - delay: 10s  # 等待系统稳定
+      - voice_assistant.start_continuous:
+      - script.execute: listening_timeout
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -29,7 +34,7 @@ ota:
 
 # Logger Configuration
 logger:
-  level: INFO
+  level: debug
 
 # I2S Audio Bus - Input (Microphone)
 i2s_audio:
@@ -63,7 +68,7 @@ speaker:
     sample_rate: 16000      # Sample rate (Hz)
     bits_per_sample: 16bit  # Bit depth
     channel: right          # Use right channel (MAX98357A usually listens to right channel)
-
+    buffer_duration: 6s  # 默认是 500ms，改成 3s 足够解决溢出问题
 # Micro Wake Word - Local wake word detection (ESP-IDF)
   # Available models: okay_nabu, hey_jarvis, alexa, hey_mycroft
 # micro_wake_word:
@@ -99,9 +104,9 @@ voice_assistant:
   microphone: inmp441_mic
   speaker: max98357a_speaker
   use_wake_word: true               # Enable wake word detection
-  noise_suppression_level: 2        # Noise suppression level (0-4)
-  auto_gain: 31dBFS                 # Automatic gain control
-  volume_multiplier: 2.0            # Volume multiplier
+  noise_suppression_level: 4        # Noise suppression level (0-4) - 最高级别降噪
+  auto_gain: 31dBFS                 # Automatic gain control - 提高增益
+  volume_multiplier: 4.0            # Volume multiplier - 增大音量倍数
 
   on_listening:
     - light.turn_on:
