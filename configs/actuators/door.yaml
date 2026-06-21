@@ -1,21 +1,21 @@
 packages:
   base: !include ../../common.yaml
-  
+
 esphome:
   name: door-opener-esp32c3
   friendly_name: "门锁控制器"
   on_boot:
-    priority: -100  # 最后执行，确保网络等已就绪
+    priority: -100 # 最后执行，确保网络等已就绪
     then:
-      - servo.detach: door_servo  # 开机时不驱动舵机，保持自由状态
-  
+      - servo.detach: door_servo # 开机时不驱动舵机，保持自由状态
+
 esp32:
   variant: esp32c3
   framework:
-    type: arduino  # 改为arduino框架，更稳定  蓝牙需要 esp-idf节省存储空间
+    type: arduino # 改为arduino框架，更稳定  蓝牙需要 esp-idf节省存储空间
 
 wifi:
-  power_save_mode: LIGHT  # WiFi省电模式，降低约20-30mA
+  power_save_mode: LIGHT # WiFi省电模式，降低约20-30mA
 
 time:
   - platform: homeassistant
@@ -33,9 +33,8 @@ time:
 deep_sleep:
   id: deep_sleep_control
 
-
 logger:
-  baud_rate: 0  # 关闭串口输出，省电 ~2-3mA（无线日志不受影响）
+  baud_rate: 0 # 关闭串口输出，省电 ~2-3mA（无线日志不受影响）
   level: WARN
   logs:
     wifi: WARN
@@ -46,16 +45,16 @@ logger:
 output:
   - platform: ledc
     id: door_servo_pwm
-    pin: GPIO9   
+    pin: GPIO9
     frequency: 100Hz
 
 # Door servo control configuration
 servo:
   - id: door_servo
     output: door_servo_pwm
-    auto_detach_time: 2s    # Auto disconnect after 2s to ensure door operation completion
-    min_level: 0%       
-    max_level: 25%      
+    auto_detach_time: 2s # Auto disconnect after 2s to ensure door operation completion
+    min_level: 0%
+    max_level: 25%
 
 # Door control
 number:
@@ -65,33 +64,13 @@ number:
     min_value: 0
     max_value: 180
     step: 1
-    initial_value: 180  # Default closed position (180 degrees)
+    initial_value: 180 # Default closed position (180 degrees)
     optimistic: true
     set_action:
       then:
         - servo.write:
             id: door_servo
-            level: !lambda 'return x / 180.0;'
-
-# Free angle setter
-  - platform: template
-    name: "free_angle_control"
-    id: free_angle_control
-    min_value: 0
-    max_value: 180
-    step: 5  # 5 degree steps for precise control
-    initial_value: 90  # Default middle position
-    optimistic: true
-    icon: "mdi:rotate-orbit"
-    set_action:
-      then:
-        - logger.log: "Setting free angle"
-        - servo.write:
-            id: door_servo
-            level: !lambda 'return x / 180.0;'
-        - number.set:
-            id: door_angle
-            value: !lambda 'return x;'
+            level: !lambda "return x / 180.0;"
 
 # Door preset operations
 button:
@@ -104,11 +83,11 @@ button:
         - logger.log: "Executing door open operation - Set to 0 degrees"
         - servo.write:
             id: door_servo
-            level: 0.0  # 0 degrees, fully open
+            level: 0.0 # 0 degrees, fully open
         - number.set:
             id: door_angle
             value: 0
-        
+
   - platform: template
     name: "door_close"
     id: door_close_btn
@@ -118,46 +97,12 @@ button:
         - logger.log: "Executing door close operation - Set to 180 degrees"
         - servo.write:
             id: door_servo
-            level: 1.0  # 180 degrees, closed position
+            level: 1.0 # 180 degrees, closed position
         - number.set:
             id: door_angle
             value: 180
-        
-  - platform: template
-    name: "unlock_position"
-    id: door_unlock_btn
-    icon: "mdi:lock-open"
-    on_press:
-      then:
-        - logger.log: "Move to unlock position - Set to 0 degrees"
-        - servo.write:
-            id: door_servo
-            level: 0.0  
-        - number.set:
-            id: door_angle
-            value: 0
 
-# Add test button for debugging servo range
-  - platform: template
-    name: "test_90_degree"
-    id: test_90_btn
-    on_press:
-      then:
-        - logger.log: "Testing 90 degree position"
-        - servo.write:
-            id: door_servo
-            level: 0.5  # 90 degrees, middle position
-        - number.set:
-            id: door_angle
-            value: 90
-        - number.set:
-            id: free_angle_control
-            value: 90
-
-
-
-
-# —— 防抖/冷却计时，避免重复开门 —— 
+# —— 防抖/冷却计时，避免重复开门 ——
 # globals:
 #   - id: last_open_ms
 #     type: uint32_t
