@@ -1,0 +1,144 @@
+# ===================================================================
+# 门锁控制器 - ESP-NOW 接收端 (电池供电, 超低功耗)
+# ===================================================================
+# 架构: ESP32-C3 + ESP-NOW + Deep Sleep 周期性唤醒
+# 无 WiFi 连接, 通过 door-gateway 中继与 Home Assistant 通信
+#
+# 工作流程:
+#   1. 定时器唤醒 (每 1s)
+#   2. ESP-NOW 初始化 + 监听 (~200ms)
+#   3. 收到命令 → 阻止睡眠 → 执行舵机 → 回睡
+#      未收到命令 → run_duration 到期自动回睡
+#
+# OTA 更新: 需要 USB 烧录 (无 WiFi 无法 OTA)
+# ===================================================================
+
+esphome:
+  name: door-opener-esp32c3
+  friendly_name: "门锁控制器"
+  on_boot:
+    priority: -100
+    then:
+      - servo.detach: door_servo
+      # 关闭板载 LED 并锁住状态 (deep sleep 期间 GPIO 会浮空, 必须用 hold 锁定)
+      - lambda: |-
+          gpio_hold_dis(GPIO_NUM_12);
+          gpio_hold_dis(GPIO_NUM_13);
+          gpio_set_direction(GPIO_NUM_12, GPIO_MODE_OUTPUT);
+          gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
+          gpio_set_level(GPIO_NUM_12, 0);
+          gpio_set_level(GPIO_NUM_13, 0);
+          gpio_hold_en(GPIO_NUM_12);
+          gpio_hold_en(GPIO_NUM_13);
+          gpio_deep_sleep_hold_en();
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: esp-idf  # ESP-NOW 需要 ESP-IDF
+
+# ⚠️ 无 WiFi — 所有通信通过 ESP-NOW
+
+logger:
+  baud_rate: 0
+  level: WARN
+
+# ===================================================================
+# 防重复触发 (每次唤醒只执行一次命令)
+# ===================================================================
+globals:
+  - id: cmd_handled
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+# ===================================================================
+# ESP-NOW 配置
+# ===================================================================
+# ⚠️ channel 必须与网关所连 WiFi AP 的信道一致!
+#    查看方法: 路由器管理页 / 手机WiFi分析器 / 网关日志
+# ⚠️ peers 填网关 ESP32 的 MAC 地址
+espnow:
+  channel: 1  # TODO: 改为你的 WiFi AP 实际信道
+  peers:
+    - "9C:13:9E:73:88:F4"  # 网关 ESP32-C3
+  on_receive:
+    then:
+      - lambda: |-
+          if (size < 1 || id(cmd_handled)) return;
+          id(cmd_handled) = true;
+          uint8_t cmd = data[0];
+          ESP_LOGI("door", "收到命令: 0x%02X", cmd);
+          if (cmd == 0x01) {
+            id(deep_sleep_ctrl).prevent_deep_sleep();
+            id(door_open_btn).press();
+          } else if (cmd == 0x02) {
+            id(deep_sleep_ctrl).prevent_deep_sleep();
+            id(door_close_btn).press();
+          }
+
+# ===================================================================
+# Deep Sleep - 周期性唤醒监听
+# ===================================================================
+# run_duration: ESP-NOW 监听窗口 (含启动开销)
+# sleep_duration: 深睡时长 (响应延迟上限)
+#
+# 功耗估算 (run=200ms, sleep=1000ms, cycle=1200ms):
+#   活跃占空比: 200/1200 ≈ 16.7%
+#   平均电流: ~80mA × 16.7% + 5μA × 83.3% ≈ 13.4mA
+#   10000mAh 续航: ~31 天
+#
+# 如需更低功耗, 可:
+#   - 增大 sleep_duration 到 2s (平均~6.8mA, ~61天)
+#   - 减小 run_duration (需实测启动时间是否够)
+deep_sleep:
+  id: deep_sleep_ctrl
+  run_duration: 200ms
+  sleep_duration: 1s
+
+# ===================================================================
+# 舵机控制
+# ===================================================================
+output:
+  - platform: ledc
+    id: door_servo_pwm
+    pin: GPIO9
+    frequency: 100Hz
+
+servo:
+  - id: door_servo
+    output: door_servo_pwm
+    auto_detach_time: 2s
+    min_level: 0%
+    max_level: 25%
+
+
+# ===================================================================
+# 门控动作 (由 ESP-NOW 命令触发)
+# ===================================================================
+button:
+  - platform: template
+    name: "door_open"
+    id: door_open_btn
+    icon: "mdi:door-open"
+    on_press:
+      then:
+        - logger.log: "开门 - 舵机 0°"
+        - servo.write:
+            id: door_servo
+            level: 0.0
+        - delay: 3s
+        - deep_sleep.enter: deep_sleep_ctrl
+
+  - platform: template
+    name: "door_close"
+    id: door_close_btn
+    icon: "mdi:door-closed-lock"
+    on_press:
+      then:
+        - logger.log: "关门 - 舵机 180°"
+        - servo.write:
+            id: door_servo
+            level: 1.0
+        - delay: 3s
+        - deep_sleep.enter: deep_sleep_ctrl

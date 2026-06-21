@@ -1,0 +1,122 @@
+# ===================================================================
+# 门锁网关 - ESP-NOW 发射端 (有线供电, 连接 HA)
+# ===================================================================
+# 架构: ESP32 + WiFi + ESP-NOW
+# 角色: 接收 HA 指令 → 通过 ESP-NOW 转发给门锁 ESP32-C3
+# 放置位置: 门旁边, 有线供电 (USB或5V电源)
+# ===================================================================
+
+esphome:
+  name: door-gateway
+  friendly_name: "门锁网关"
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          gpio_set_direction(GPIO_NUM_12, GPIO_MODE_OUTPUT);
+          gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
+          gpio_set_level(GPIO_NUM_12, 0);
+          gpio_set_level(GPIO_NUM_13, 0);
+
+esp32:
+  board: airm2m_core_esp32c3
+  framework:
+    type: esp-idf  # ESP-NOW 需要 ESP-IDF 框架
+
+# WiFi 连接 (ESP-NOW 会自动使用相同信道)
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+  level: INFO
+
+web_server:
+  port: 80
+
+# ===================================================================
+# ESP-NOW 配置
+# ===================================================================
+# ⚠️ peers 填写门锁 ESP32-C3 的 MAC 地址
+# 获取方法: esptool read_mac 或首次USB烧录时串口输出
+espnow:
+  peers:
+    - "34:CD:B0:A7:BC:00"  # 门锁 ESP32-C3
+  # channel 不设置 - 自动跟随 WiFi AP 信道
+
+# ===================================================================
+# 发送脚本 - 重复发送覆盖门锁整个唤醒周期
+# ===================================================================
+# 门锁周期 = run_duration(200ms) + sleep_duration(1000ms) = 1200ms
+# 每 150ms 发一次, 发 10 次 = 1500ms 覆盖, 保证至少命中一次唤醒窗口
+script:
+  - id: send_open_cmd
+    mode: restart  # 再次触发时重新开始,避免重叠
+    then:
+      - repeat:
+          count: 10
+          then:
+            - espnow.send:
+                address: "34:CD:B0:A7:BC:00"
+                data: [0x01]
+            - delay: 150ms
+
+  - id: send_close_cmd
+    mode: restart
+    then:
+      - repeat:
+          count: 10
+          then:
+            - espnow.send:
+                address: "34:CD:B0:A7:BC:00"
+                data: [0x02]
+            - delay: 150ms
+
+# ===================================================================
+# HA 控制按钮
+# ===================================================================
+button:
+  - platform: template
+    name: "Door Open"
+    id: door_open_btn
+    icon: "mdi:door-open"
+    on_press:
+      then:
+        - logger.log: "触发开门 → ESP-NOW 重复发送中..."
+        - script.execute: send_open_cmd
+
+  - platform: template
+    name: "Door Close"
+    id: door_close_btn
+    icon: "mdi:door-closed-lock"
+    on_press:
+      then:
+        - logger.log: "触发关门 → ESP-NOW 重复发送中..."
+        - script.execute: send_close_cmd
+
+  - platform: restart
+    name: "Gateway Restart"
+
+# ===================================================================
+# 状态监控
+# ===================================================================
+binary_sensor:
+  - platform: status
+    name: "Gateway Status"
+
+sensor:
+  - platform: wifi_signal
+    name: "Gateway WiFi Signal"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Gateway Uptime"
+    update_interval: 60s
