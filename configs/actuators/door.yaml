@@ -4,11 +4,18 @@ packages:
 esphome:
   name: door-opener-esp32c3
   friendly_name: "门锁控制器"
+  on_boot:
+    priority: -100  # 最后执行，确保网络等已就绪
+    then:
+      - servo.detach: door_servo  # 开机时不驱动舵机，保持自由状态
   
 esp32:
   variant: esp32c3
   framework:
     type: arduino  # 改为arduino框架，更稳定  蓝牙需要 esp-idf节省存储空间
+
+wifi:
+  power_save_mode: LIGHT  # WiFi省电模式，降低约20-30mA
 
 time:
   - platform: homeassistant
@@ -28,17 +35,18 @@ deep_sleep:
 
 
 logger:
-  level: DEBUG  # Increased to DEBUG level for easier troubleshooting
+  baud_rate: 0  # 关闭串口输出，省电 ~2-3mA（无线日志不受影响）
+  level: WARN
   logs:
-    wifi: DEBUG
-    api: DEBUG
-    deep_sleep: INFO
+    wifi: WARN
+    api: WARN
+    deep_sleep: WARN
 
 # PWM output configuration
 output:
   - platform: ledc
     id: door_servo_pwm
-    pin: GPIO2            
+    pin: GPIO9   
     frequency: 100Hz
 
 # Door servo control configuration
@@ -64,9 +72,6 @@ number:
         - servo.write:
             id: door_servo
             level: !lambda 'return x / 180.0;'
-        # 手动触发sensor更新
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
 
 # Free angle setter
   - platform: template
@@ -87,9 +92,6 @@ number:
         - number.set:
             id: door_angle
             value: !lambda 'return x;'
-        # 手动触发sensor更新
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
 
 # Door preset operations
 button:
@@ -106,22 +108,6 @@ button:
         - number.set:
             id: door_angle
             value: 0
-        # Manually trigger sensor update
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
-        # Wait 3 seconds after opening, then auto close
-        - delay: 3s
-        - logger.log: "Auto close - Set to 180 degrees"
-        - servo.write:
-            id: door_servo
-            level: 1.0  # 180 degrees, closed position
-        - number.set:
-            id: door_angle
-            value: 180
-        # Update sensor again after closing
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
-        - delay: 2s
         
   - platform: template
     name: "door_close"
@@ -136,10 +122,6 @@ button:
         - number.set:
             id: door_angle
             value: 180
-        # Manually trigger sensor update
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
-        - delay: 2s
         
   - platform: template
     name: "unlock_position"
@@ -154,10 +136,6 @@ button:
         - number.set:
             id: door_angle
             value: 0
-        # Manually trigger sensor update
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
-        - delay: 2s
 
 # Add test button for debugging servo range
   - platform: template
@@ -175,26 +153,8 @@ button:
         - number.set:
             id: free_angle_control
             value: 90
-        # Manually trigger sensor update
-        - component.update: uptime_sensor
-        - component.update: door_position_feedback
 
 
-# Power and door lock status sensors
-sensor:
-  - platform: template
-    name: "uptime"
-    id: uptime_sensor
-    unit_of_measurement: "s"
-    update_interval: never  # Changed to manual trigger, no auto reporting
-    lambda: 'return millis() / 1000.0;'
-    
-  - platform: template
-    name: "door_angle_feedback"
-    id: door_position_feedback
-    unit_of_measurement: "°"
-    update_interval: never  # Changed to manual trigger, no auto reporting
-    lambda: 'return id(door_angle).state;'
 
 
 # —— 防抖/冷却计时，避免重复开门 —— 
