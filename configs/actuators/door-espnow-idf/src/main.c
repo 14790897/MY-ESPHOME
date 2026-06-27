@@ -20,6 +20,7 @@
 #include "nvs_flash.h"
 #include "driver/ledc.h"
 #include "driver/gpio.h"
+#include "esp_idf_version.h"
 
 // ===================================================================
 // 配置参数
@@ -36,8 +37,14 @@ static const uint8_t GATEWAY_MAC[6] = {0x9C, 0x13, 0x9E, 0x73, 0x88, 0xF4};
 // 命令协议
 #define CMD_OPEN        0x01
 #define CMD_CLOSE       0x02
+#define CMD_NIGHT       0x03    // 夜间模式 (长休眠)
+#define CMD_DAY         0x04    // 白天模式 (1s 唤醒)
 #define CMD_ACK_OPEN    0x10
 #define CMD_ACK_CLOSE   0x20
+#define CMD_ACK_SLEEP   0x30    // 模式切换回执
+
+// 夜间直接休眠 9 小时 (22:00 → 07:00), 醒来自动切回白天模式
+#define NIGHT_SLEEP_SEC 32400
 
 // 舵机 PWM (GPIO9, 100Hz)
 #define SERVO_GPIO          GPIO_NUM_9
@@ -53,21 +60,42 @@ static const uint8_t GATEWAY_MAC[6] = {0x9C, 0x13, 0x9E, 0x73, 0x88, 0xF4};
 // ===================================================================
 // 全局状态
 // ===================================================================
+//
+//  数据流向:
+//    espnow_recv_cb() ──写入──▶ received_cmd / command_received ──读取──▶ app_main()
+//    espnow_recv_cb() ──写入──▶ night_mode                      ──读取──▶ enter_deep_sleep()
+//
+//  为什么用全局变量？
+//    esp_now_register_recv_cb() 不支持 user_data 参数，回调签名固定，
+//    只能通过 volatile 全局变量与主循环通信。
+// ===================================================================
 
 static const char *TAG = "door";
+
+// [写入: espnow_recv_cb()] [读取: app_main() switch()]
 static volatile bool command_received = false;
 static volatile uint8_t received_cmd = 0;
+
+// [写入: espnow_recv_cb()] [读取: enter_deep_sleep()]  deep sleep 期间保持
+RTC_DATA_ATTR static bool night_mode = false;
 
 // ===================================================================
 // ESP-NOW 回调
 // ===================================================================
 
+// ESP-NOW 回调 — 兼容 ESP-IDF v4.x 和 v5.x
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
+    const uint8_t *src = info->src_addr;
+#else
+static void espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int len)
+{
+    const uint8_t *src = mac_addr;
+#endif
     if (len < 1 || command_received) return;
 
-    // 验证发送方 MAC
-    if (memcmp(info->src_addr, GATEWAY_MAC, 6) != 0) {
+    if (memcmp(src, GATEWAY_MAC, 6) != 0) {
         ESP_LOGW(TAG, "Unknown sender, ignoring");
         return;
     }
@@ -75,6 +103,14 @@ static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data,
     received_cmd = data[0];
     command_received = true;
     ESP_LOGI(TAG, "Command received: 0x%02X", received_cmd);
+
+    if (received_cmd == CMD_NIGHT) {
+        night_mode = true;
+        ESP_LOGI(TAG, "Entering night mode");
+    } else if (received_cmd == CMD_DAY) {
+        night_mode = false;
+        ESP_LOGI(TAG, "Entering day mode");
+    }
 }
 
 // ===================================================================
@@ -157,12 +193,21 @@ static void send_ack(uint8_t ack)
 
 static void leds_off(void)
 {
+    // 释放上次 deep sleep 的 hold (否则无法改变 GPIO 状态)
+    gpio_hold_dis(LED_D4_GPIO);
+    gpio_hold_dis(LED_D5_GPIO);
+
+    // 拉低 GPIO → LED 灭
     gpio_set_direction(LED_D4_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_D5_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(LED_D4_GPIO, 0);
     gpio_set_level(LED_D5_GPIO, 0);
-    // 注意: GPIO12/13 非 RTC GPIO, deep sleep 时会浮空
-    // 如需彻底关灯需硬件拆除 LED
+
+    // 锁住 GPIO 状态，deep sleep 期间保持
+    // ESP32-C3 所有 GPIO 均支持 deep sleep hold (不限 RTC GPIO)
+    gpio_hold_en(LED_D4_GPIO);
+    gpio_hold_en(LED_D5_GPIO);
+    gpio_deep_sleep_hold_en();
 }
 
 // ===================================================================
@@ -176,10 +221,15 @@ static void enter_deep_sleep(void)
     esp_wifi_stop();
     esp_wifi_deinit();
 
-    // 配置唤醒源: 定时器
-    esp_sleep_enable_timer_wakeup(SLEEP_DURATION_US);
+    uint64_t sleep_us;
+    if (night_mode) {
+        sleep_us = NIGHT_SLEEP_SEC * 1000000ULL;
+        ESP_LOGI(TAG, "Night mode: sleeping %d s (until morning)", NIGHT_SLEEP_SEC);
+    } else {
+        sleep_us = SLEEP_DURATION_US;
+    }
 
-    ESP_LOGI(TAG, "Entering deep sleep (%d ms)", SLEEP_DURATION_US / 1000);
+    esp_sleep_enable_timer_wakeup(sleep_us);
     esp_deep_sleep_start();
 }
 
@@ -193,7 +243,13 @@ void app_main(void)
     int64_t boot_time = esp_timer_get_time();
 
     ESP_LOGI(TAG, "=== Door Lock ESP-NOW (IDF) ===");
-    ESP_LOGI(TAG, "Boot reason: %d", esp_sleep_get_wakeup_cause());
+    ESP_LOGI(TAG, "Boot reason: %d, night_mode: %d", esp_sleep_get_wakeup_cause(), night_mode);
+
+    // 从 9 小时夜间休眠醒来, 自动切回白天模式
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && night_mode) {
+        night_mode = false;
+        ESP_LOGI(TAG, "Woke from night sleep, switching to day mode");
+    }
 
     // 关闭 LED
     leds_off();
@@ -217,33 +273,34 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(LISTEN_DURATION_MS));
 
     if (command_received) {
-        ESP_LOGI(TAG, "Processing command 0x%02X", received_cmd);
-
-        // 初始化舵机
-        servo_init();
-
         switch (received_cmd) {
             case CMD_OPEN:
-                send_ack(CMD_ACK_OPEN);
                 ESP_LOGI(TAG, "OPEN - servo to 0 deg");
+                servo_init();
+                send_ack(CMD_ACK_OPEN);
                 servo_write(SERVO_DUTY_OPEN);
                 vTaskDelay(pdMS_TO_TICKS(SERVO_HOLD_MS));
+                servo_detach();
                 break;
 
             case CMD_CLOSE:
-                send_ack(CMD_ACK_CLOSE);
                 ESP_LOGI(TAG, "CLOSE - servo to 180 deg");
+                servo_init();
+                send_ack(CMD_ACK_CLOSE);
                 servo_write(SERVO_DUTY_CLOSE);
                 vTaskDelay(pdMS_TO_TICKS(SERVO_HOLD_MS));
+                servo_detach();
+                break;
+
+            case CMD_NIGHT:
+            case CMD_DAY:
+                send_ack(CMD_ACK_SLEEP);
+                // 模式已在回调中切换，不做其他操作
                 break;
 
             default:
-                ESP_LOGW(TAG, "Unknown command: 0x%02X", received_cmd);
                 break;
         }
-
-        // 断开舵机
-        servo_detach();
     } else {
         ESP_LOGD(TAG, "No command, going back to sleep");
     }

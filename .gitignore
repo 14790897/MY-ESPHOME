@@ -1,8 +1,34 @@
 # Gitignore settings for ESPHome
 # This is an example and may include too much for your use-case.
 # You can modify this file to suit your needs.
+
+# ESPHome
 .esphome/
+.pio-core-esphome/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# Secrets
 secrets.yaml
-onenet_mqtt_example.sh
 secrets-onenet.yaml
-.pio-core-esphome/*
+onenet_mqtt_example.sh
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

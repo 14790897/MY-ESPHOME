@@ -42,6 +42,24 @@ logger:
 web_server:
   port: 80
 
+# 时间调度 (自动切换夜间/白天模式)
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: 22
+        then:
+          - logger.log: "22:00 进入夜间模式"
+          - script.execute: send_night_cmd
+      - seconds: 0
+        minutes: 0
+        hours: 7
+        then:
+          - logger.log: "07:00 进入白天模式"
+          - script.execute: send_day_cmd
+
 # ===================================================================
 # ESP-NOW 配置
 # ===================================================================
@@ -49,7 +67,7 @@ web_server:
 # 获取方法: esptool read_mac 或首次USB烧录时串口输出
 espnow:
   peers:
-    - "34:CD:B0:A7:BC:00"  # 门锁 ESP32-C3
+    - "b0:a6:04:57:63:b0"  # 门锁 ESP32-C3
   # channel 不设置 - 自动跟随 WiFi AP 信道
 
 # ===================================================================
@@ -65,7 +83,7 @@ script:
           count: 10
           then:
             - espnow.send:
-                address: "34:CD:B0:A7:BC:00"
+                address: "b0:a6:04:57:63:b0"
                 data: [0x01]
             - delay: 150ms
 
@@ -76,8 +94,32 @@ script:
           count: 10
           then:
             - espnow.send:
-                address: "34:CD:B0:A7:BC:00"
+                address: "b0:a6:04:57:63:b0"
                 data: [0x02]
+            - delay: 150ms
+
+  # 夜间模式: 门锁每分钟醒一次, 发送窗口需覆盖60s
+  - id: send_night_cmd
+    mode: restart
+    then:
+      - repeat:
+          count: 10
+          then:
+            - espnow.send:
+                address: "b0:a6:04:57:63:b0"
+                data: [0x03]
+            - delay: 150ms
+
+  # 白天模式: 正常唤醒
+  - id: send_day_cmd
+    mode: restart
+    then:
+      - repeat:
+          count: 10
+          then:
+            - espnow.send:
+                address: "b0:a6:04:57:63:b0"
+                data: [0x04]
             - delay: 150ms
 
 # ===================================================================

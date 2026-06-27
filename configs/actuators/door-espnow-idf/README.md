@@ -11,7 +11,7 @@
 
 ## 配置修改
 
-编辑 `main/main.c` 顶部的配置参数：
+编辑 `src/main.c` 顶部的配置参数：
 
 ```c
 #define ESPNOW_CHANNEL      1       // 改为你的 WiFi AP 信道
@@ -22,39 +22,78 @@
 static const uint8_t GATEWAY_MAC[6] = {0x9C, 0x13, 0x9E, 0x73, 0x88, 0xF4};
 ```
 
-## 编译与烧录
+## 编译与烧录 (PlatformIO)
 
-### 前提
+> ⚠️ **重要：** 本项目位于 ESPHome 仓库内，ESPHome 自带的 `.pio-core-esphome/` 会干扰 PlatformIO 环境选择。必须在运行 `pio` 前设置环境变量指向独立 PlatformIO。
 
-- 安装 ESP-IDF v5.x
-- 设置 target 为 ESP32-C3
+**PowerShell:**
 
-### 命令
-
-```bash
-# 设置 target
-idf.py set-target esp32c3
-
+```powershell
 # 编译
-idf.py build
+$env:PLATFORMIO_CORE_DIR = "$env:USERPROFILE\.platformio"; pio run
 
-# 烧录 (指定串口)
-idf.py -p COM20 flash
+# 编译 + 烧录
+$env:PLATFORMIO_CORE_DIR = "$env:USERPROFILE\.platformio"; pio run -t upload --upload-port COM18
 
 # 查看日志
-idf.py -p COM20 monitor
+$env:PLATFORMIO_CORE_DIR = "$env:USERPROFILE\.platformio"; pio device monitor --port COM18 --baud 115200
 ```
 
-### 使用 PlatformIO
+**Bash (Git Bash / WSL):**
 
-```ini
-; platformio.ini
-[env:door-espnow-idf]
-platform = espressif32
-board = airm2m_core_esp32c3
-framework = espidf
-monitor_speed = 115200
+```bash
+PLATFORMIO_CORE_DIR=$HOME/.platformio pio run
+PLATFORMIO_CORE_DIR=$HOME/.platformio pio run -t upload --upload-port COM18
 ```
+
+### 常用命令
+
+```bash
+# 编译
+pio run
+
+# 编译 + 烧录 (指定端口)
+pio run -t upload
+
+# 仅烧录 (已编译过)
+pio run -t upload
+
+# 查看串口日志
+pio device monitor --baud 115200
+
+# 清理编译缓存
+pio run -t clean
+
+# 完全清理 (含依赖)
+pio run -t fullclean
+
+# 查看板子信息
+pio boards airm2m_core_esp32c3
+
+# 清理 PlatformIO 系统缓存 (节省磁盘)
+pio system prune
+
+# 列出可用串口
+pio device list
+```
+
+### 项目结构
+
+```
+door-espnow-idf/
+├── platformio.ini       # PlatformIO 配置 (板子、框架、flash 模式)
+├── src/
+│   └── main.c           # 固件源码
+└── README.md
+```
+
+### 依赖
+
+| 工具 | 版本 |
+|------|------|
+| PlatformIO | 通过系统 Python 安装 |
+| ESP-IDF | v4.4.5 (PlatformIO 自动下载) |
+| 板子 | `airm2m_core_esp32c3` (合宙 CORE ESP32-C3) |
 
 ## 与 ESPHome 网关协作
 
