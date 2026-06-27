@@ -98,20 +98,8 @@ script:
                 data: [0x02]
             - delay: 150ms
 
-  # 夜间模式: 门锁每 60s 醒一次 (30ms), 发送覆盖 66s 保证命中
+  # 夜间模式: 22:00 发送, 此时门锁还在 1s 白天周期, 短窗口即可
   - id: send_night_cmd
-    mode: restart
-    then:
-      - repeat:
-          count: 11
-          then:
-            - espnow.send:
-                address: "b0:a6:04:57:63:b0"
-                data: [0x03]
-            - delay: 6s
-
-  # 白天模式: 门锁每 1s 醒一次, 1.5s 覆盖足够
-  - id: send_day_cmd
     mode: restart
     then:
       - repeat:
@@ -119,8 +107,20 @@ script:
           then:
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
-                data: [0x04]
+                data: [0x03]
             - delay: 150ms
+
+  # 白天模式: 07:00 发送, 此时门锁在 60s 夜间周期, 必须长窗口覆盖
+  - id: send_day_cmd
+    mode: restart
+    then:
+      - repeat:
+          count: 11
+          then:
+            - espnow.send:
+                address: "b0:a6:04:57:63:b0"
+                data: [0x04]
+            - delay: 6s
 
 # ===================================================================
 # HA 控制按钮
