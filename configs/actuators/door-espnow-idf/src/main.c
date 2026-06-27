@@ -43,8 +43,8 @@ static const uint8_t GATEWAY_MAC[6] = {0x9C, 0x13, 0x9E, 0x73, 0x88, 0xF4};
 #define CMD_ACK_CLOSE   0x20
 #define CMD_ACK_SLEEP   0x30    // 模式切换回执
 
-// 夜间直接休眠 9 小时 (22:00 → 07:00), 醒来自动切回白天模式
-#define NIGHT_SLEEP_SEC 32400
+// 夜间休眠时长 (秒) = 一次唤醒检查的间隔
+#define NIGHT_SLEEP_SEC 60
 
 // 舵机 PWM (GPIO9, 100Hz)
 #define SERVO_GPIO          GPIO_NUM_9
@@ -244,12 +244,6 @@ void app_main(void)
 
     ESP_LOGI(TAG, "=== Door Lock ESP-NOW (IDF) ===");
     ESP_LOGI(TAG, "Boot reason: %d, night_mode: %d", esp_sleep_get_wakeup_cause(), night_mode);
-
-    // 从 9 小时夜间休眠醒来, 自动切回白天模式
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && night_mode) {
-        night_mode = false;
-        ESP_LOGI(TAG, "Woke from night sleep, switching to day mode");
-    }
 
     // 关闭 LED
     leds_off();

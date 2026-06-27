@@ -98,19 +98,19 @@ script:
                 data: [0x02]
             - delay: 150ms
 
-  # 夜间模式: 门锁每分钟醒一次, 发送窗口需覆盖60s
+  # 夜间模式: 门锁每 60s 醒一次 (30ms), 发送覆盖 66s 保证命中
   - id: send_night_cmd
     mode: restart
     then:
       - repeat:
-          count: 10
+          count: 11
           then:
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
                 data: [0x03]
-            - delay: 150ms
+            - delay: 6s
 
-  # 白天模式: 正常唤醒
+  # 白天模式: 门锁每 1s 醒一次, 1.5s 覆盖足够
   - id: send_day_cmd
     mode: restart
     then:

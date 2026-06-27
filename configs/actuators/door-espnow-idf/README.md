@@ -111,3 +111,4 @@ door-espnow-idf/
 - GPIO12/13 LED 在 deep sleep 期间会亮（非 RTC GPIO），建议硬件拆除
 - GPIO9 (BOOT) 用于舵机 PWM，是 strapping pin，外接舵机时不要下拉
 - 无 OTA 能力，每次更新需 USB 烧录
+- **白天 1s 唤醒是为了正常响应开门命令，夜间 60s 唤醒是为了防止充电宝休眠断电**
