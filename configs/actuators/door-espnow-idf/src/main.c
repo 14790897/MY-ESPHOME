@@ -44,7 +44,7 @@ static const uint8_t GATEWAY_MAC[6] = {0x9C, 0x13, 0x9E, 0x73, 0x88, 0xF4};
 #define CMD_ACK_SLEEP   0x30    // 模式切换回执
 
 // 夜间休眠时长 (秒) = 一次唤醒检查的间隔
-#define NIGHT_SLEEP_SEC 60
+#define NIGHT_SLEEP_SEC 20
 
 // 舵机 PWM (GPIO9, 100Hz)
 #define SERVO_GPIO          GPIO_NUM_9
