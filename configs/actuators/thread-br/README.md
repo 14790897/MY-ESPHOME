@@ -2,10 +2,12 @@
 
 基于 ESP-IDF v5.5.2 的单芯片 Thread 边界路由器。
 
+> ⚠️ **当前状态：未完全调通。** Home Assistant 能发现设备并访问 REST API（`/node` 返回 `State:4`），但 OpenThread Border Router 集成提示"没有可导入的凭据"。mDNS 服务和 REST API 端点已对齐标准 OTBR，凭据导入问题待进一步排查。（同时没出现官方文档中的图标按钮）https://www.home-assistant.io/integrations/thread#understanding-the-thread-configuration-page
+![alt text](image.png)
 ## 硬件
 
 - **芯片**: ESP32-C6 (WiFi 6 + BT5 + IEEE 802.15.4)
-- **Flash**: 2MB (实际 4MB 但只用了 2MB)
+- **Flash**: 4MB（使用自定义分区表，factory 1900KB）
 - **串口**: COM23 (CH343, VID=1A86 PID=55D3)
 - **注意**: 单 RF 天线，WiFi 和 Thread 软件共存分时复用
 
