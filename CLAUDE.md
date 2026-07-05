@@ -41,7 +41,7 @@ MY-ESPHOME/
 > $env:PLATFORMIO_CORE_DIR = "C:\git-program\Embedded\MY-ESPHOME\.pio-core-esphome"
 > $env:ESPHOME_CACHE_DIR = "C:\git-program\Embedded\MY-ESPHOME\.esphome"
 > ```
-> 不设置会使用全局 PlatformIO，导致框架版本冲突编译失败。
+> ESPHome 使用自带的 pioarduino fork（`.pio-core-esphome`），锁定了精确的包版本。全局 `~/.platformio` 是官方版，两者不兼容，必须通过 `PLATFORMIO_CORE_DIR` 指向 ESPHome 自带的版本。
 
 ```bash
 # 编译

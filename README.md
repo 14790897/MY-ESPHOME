@@ -58,6 +58,8 @@ pip install esphome
 
 > ⚠️ **运行 esphome 前必须先设置环境变量**，否则会使用全局 PlatformIO 导致框架版本冲突编译失败。
 
+ESPHome 使用自带的 `pioarduino` fork（`.pio-core-esphome`），锁定了精确的包版本，与全局 `~/.platformio`（官方版）不兼容。
+
 VSCode 终端已通过 `.vscode/settings.json` 自动配置。外部终端需手动设置：
 
 ```powershell
