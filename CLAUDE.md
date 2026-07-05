@@ -36,6 +36,13 @@ MY-ESPHOME/
 
 ## Key Commands
 
+> ⚠️ **运行 esphome 前必须先设置环境变量**（见 `.vscode/settings.json`）:
+> ```powershell
+> $env:PLATFORMIO_CORE_DIR = "C:\git-program\Embedded\MY-ESPHOME\.pio-core-esphome"
+> $env:ESPHOME_CACHE_DIR = "C:\git-program\Embedded\MY-ESPHOME\.esphome"
+> ```
+> 不设置会使用全局 PlatformIO，导致框架版本冲突编译失败。
+
 ```bash
 # 编译
 esphome compile configs/actuators/door-espnow.yaml

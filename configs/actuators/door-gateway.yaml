@@ -22,6 +22,7 @@ esp32:
   board: airm2m_core_esp32c3
   framework:
     type: esp-idf  # ESP-NOW 需要 ESP-IDF 框架
+    # version: 5.5.0
 
 # WiFi 连接 (ESP-NOW 会自动使用相同信道)
 wifi:
@@ -122,6 +123,7 @@ script:
                 data: [0x04]
             - delay: 6s
 
+
 # ===================================================================
 # HA 控制按钮
 # ===================================================================
@@ -143,6 +145,24 @@ button:
       then:
         - logger.log: "触发关门 → ESP-NOW 重复发送中..."
         - script.execute: send_close_cmd
+
+  - platform: template
+    name: "Night Mode"
+    id: door_night_btn
+    icon: "mdi:weather-night"
+    on_press:
+      then:
+        - logger.log: "手动触发夜间模式 → ESP-NOW 发送中..."
+        - script.execute: send_night_cmd
+
+  - platform: template
+    name: "Day Mode"
+    id: door_day_btn
+    icon: "mdi:weather-sunny"
+    on_press:
+      then:
+        - logger.log: "手动触发白天模式 → ESP-NOW 发送中..."
+        - script.execute: send_day_cmd
 
   - platform: restart
     name: "Gateway Restart"

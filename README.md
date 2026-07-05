@@ -54,6 +54,17 @@ pip install esphome
 # 在 Home Assistant 中安装 ESPHome 集成
 ```
 
+### PlatformIO 环境变量
+
+> ⚠️ **运行 esphome 前必须先设置环境变量**，否则会使用全局 PlatformIO 导致框架版本冲突编译失败。
+
+VSCode 终端已通过 `.vscode/settings.json` 自动配置。外部终端需手动设置：
+
+```powershell
+$env:PLATFORMIO_CORE_DIR = "C:\git-program\Embedded\MY-ESPHOME\.pio-core-esphome"
+$env:ESPHOME_CACHE_DIR = "C:\git-program\Embedded\MY-ESPHOME\.esphome"
+```
+
 ### 配置 secrets.yaml
 
 创建 `secrets.yaml` 文件存储敏感信息:
