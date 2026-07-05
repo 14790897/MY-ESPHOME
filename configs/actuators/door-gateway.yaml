@@ -74,54 +74,57 @@ espnow:
 # ===================================================================
 # 发送脚本 - 重复发送覆盖门锁整个唤醒周期
 # ===================================================================
-# 门锁周期 = run_duration(200ms) + sleep_duration(1000ms) = 1200ms
-# 每 150ms 发一次, 发 10 次 = 1500ms 覆盖, 保证至少命中一次唤醒窗口
+# 门锁周期: 白天 1s(醒30ms), 夜间 20s(醒30ms)
+# 25ms间隔 < 30ms窗口, 保证每次醒来必定命中
 script:
+  # 开门: 45×25ms = 1125ms > 1s 白天周期
   - id: send_open_cmd
-    mode: restart  # 再次触发时重新开始,避免重叠
+    mode: restart
     then:
       - repeat:
-          count: 10
+          count: 45
           then:
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
                 data: [0x01]
-            - delay: 150ms
+            - delay: 25ms
 
+  # 关门: 同上
   - id: send_close_cmd
     mode: restart
     then:
       - repeat:
-          count: 10
+          count: 45
           then:
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
                 data: [0x02]
-            - delay: 150ms
+            - delay: 25ms
 
-  # 夜间模式: 22:00 发送, 此时门锁还在 1s 白天周期, 短窗口即可
+  # 夜间模式: 22:00 发送, 此时门锁还在 1s 白天周期
   - id: send_night_cmd
     mode: restart
     then:
       - repeat:
-          count: 10
+          count: 45
           then:
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
                 data: [0x03]
-            - delay: 150ms
+            - delay: 25ms
 
-  # 白天模式: 07:00 发送, 此时门锁在 60s 夜间周期, 必须长窗口覆盖
+  # 白天模式: 07:00 发送, 门锁在 20s 夜间周期
+  # 840×25ms = 21s > 20s 周期
   - id: send_day_cmd
     mode: restart
     then:
       - repeat:
-          count: 11
+          count: 840
           then:
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
                 data: [0x04]
-            - delay: 6s
+            - delay: 25ms
 
 
 # ===================================================================
