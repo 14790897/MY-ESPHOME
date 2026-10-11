@@ -52,14 +52,59 @@ time:
         minutes: 0
         hours: 22
         then:
-          - logger.log: "22:00 进入夜间模式"
-          - script.execute: send_night_cmd
+          - logger.log:
+              format: "22:00 进入夜间模式"
+              level: INFO
+          - script.execute:
+              id: send_mode_cmd
+              cmd: 0x03
+              times: 45
       - seconds: 0
         minutes: 0
         hours: 7
         then:
-          - logger.log: "07:00 进入白天模式"
-          - script.execute: send_day_cmd
+          - logger.log:
+              format: "07:00 进入白天模式"
+              level: INFO
+          - script.execute:
+              id: send_mode_cmd
+              cmd: 0x04
+              times: 840
+
+# ===================================================================
+# 门锁应答状态 (供 HA 面板显示)
+# ===================================================================
+globals:
+  - id: lock_replied
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: lock_reply_text
+    type: std::string
+    restore_value: false
+    initial_value: '"-"'
+  # 最后发出的命令, 用来把 0x30 回执解读成"夜间"还是"白天"
+  # (门锁对 CMD_NIGHT/CMD_DAY 回的是同一个字节, 见 main.c:289-293)
+  - id: last_cmd
+    type: uint8_t
+    restore_value: false
+    initial_value: "0"
+  # 门锁当前模式。只在收到 ack 确认后才改, 重启/掉电保留
+  - id: lock_night
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  # 当前这次操作在等哪个 ack (0x10/0x20/0x30), 0 = 没在等
+  # 用来把"不是回给我这条命令的 ack"排除掉
+  - id: wait_ack
+    type: uint8_t
+    restore_value: false
+    initial_value: "0"
+  # 开关门突发进行中 → 模式突发让路 (两路突发同时发会抢同一个发送队列)
+  - id: direct_busy
+    type: bool
+    restore_value: false
+    initial_value: "false"
 
 # ===================================================================
 # ESP-NOW 配置
@@ -71,60 +116,116 @@ espnow:
     - "b0:a6:04:57:63:b0"  # 门锁 ESP32-C3
   # channel 不设置 - 自动跟随 WiFi AP 信道
 
+  # 门锁每次处理命令都会回一个应用层 ack:
+  #   0x10 = 开门, 0x20 = 关门, 0x30 = 夜间/白天模式切换
+  # 收到就说明"网关→门锁"链路和门锁固件都正常 (但舵机是否真动, 这里看不出来)
+  on_receive:
+    - address: "b0:a6:04:57:63:b0"
+      then:
+        - lambda: |-
+            uint8_t ack = size > 0 ? data[0] : 0;
+
+            // 模式是全局信息, 任何一帧都能更新它
+            if (size >= 2) {
+              id(lock_night) = (data[1] != 0);       // 门锁自报模式 (新固件)
+            } else if (ack == 0x30) {
+              // 夜间/白天回的是同一个 0x30, 只能按最后发出的命令推断
+              id(lock_night) = (id(last_cmd) == 0x03);
+            }
+
+            // 只有"这次操作正在等的那一个 ack"才算应答。
+            // 否则模式突发的 0x30 会在按开门时冒名顶替, 把"没应答"报成 OK。
+            if (id(wait_ack) == 0 || ack != id(wait_ack)) return;
+
+            const char *what = ack == 0x10   ? "开门"
+                             : ack == 0x20   ? "关门"
+                             : id(lock_night) ? "夜间"
+                                              : "白天";
+            char buf[48];
+            snprintf(buf, sizeof(buf), "%s OK (0x%02X)", what, ack);
+            id(lock_reply_text) = buf;
+            id(lock_replied) = true;
+            id(wait_ack) = 0;
+            id(door_lock_replied).publish_state(true);
+            id(door_lock_reply).publish_state(id(lock_reply_text));
+            id(door_lock_mode).publish_state(id(lock_night) ? "夜间" : "白天");
+
 # ===================================================================
 # 发送脚本 - 重复发送覆盖门锁整个唤醒周期
 # ===================================================================
-# 门锁周期: 白天 1s(醒30ms), 夜间 20s(醒30ms)
-# 25ms间隔 < 30ms窗口, 保证每次醒来必定命中
+# 实测 2026-10-11:
+#   门锁白天唤醒周期 ~1.64s (不是 SLEEP_DURATION_US 那个 1s, 差值来自每次
+#   醒来 ~0.64s 的 WiFi init)。
+#   espnow.send 也不是"发完就走": wait_for_sent 默认 true, 且组件一次只发
+#   一包 (espnow_component.cpp:332), 每包都要等 MAC 层的 send report ——
+#   对端 ACK 了 ~23ms 返回, 没 ACK (MAC 重试完) ~64ms 才返回。
+#   所以 45 包实际跑 ~2.2s(白天, 多数成功) 到 ~4.0s(夜间, 全失败)。
+# 结论: 突发时长 > 唤醒周期, 每次按键都盖得住。夜间 20s 周期才需要 840 包。
 script:
-  # 开门: 45×25ms = 1125ms > 1s 白天周期
-  - id: send_open_cmd
+  # 开关门: 45 包 ≈ 2.3s, 盖住白天 ~1.64s 的唤醒周期
+  - id: send_direct_cmd
     mode: restart
+    parameters:
+      cmd: uint8_t
     then:
+      - lambda: id(direct_busy) = true;
       - repeat:
           count: 45
           then:
+            - lambda: id(last_cmd) = cmd;
             - espnow.send:
                 address: "b0:a6:04:57:63:b0"
-                data: [0x01]
+                data: !lambda 'return {cmd};'
             - delay: 25ms
+      - lambda: id(direct_busy) = false;
 
-  # 关门: 同上
-  - id: send_close_cmd
+  # 模式切换: 45 包盖白天周期, 840 包(≈60s)盖 20s 夜间周期
+  - id: send_mode_cmd
     mode: restart
+    parameters:
+      cmd: uint8_t
+      times: int
     then:
       - repeat:
-          count: 45
+          count: !lambda 'return times;'
           then:
-            - espnow.send:
-                address: "b0:a6:04:57:63:b0"
-                data: [0x02]
+            # 开关门期间不发: 两路突发同时发会抢同一个发送队列,
+            # 开门那几包可能直接发不出去 (实测按开门完全收不到 0x10)
+            - if:
+                condition:
+                  lambda: return !id(direct_busy);
+                then:
+                  - lambda: id(last_cmd) = cmd;
+                  - espnow.send:
+                      address: "b0:a6:04:57:63:b0"
+                      data: !lambda 'return {cmd};'
             - delay: 25ms
 
-  # 夜间模式: 22:00 发送, 此时门锁还在 1s 白天周期
-  - id: send_night_cmd
+  # 应答看门狗: 按开关门时启动, 5s 内没等到门锁 ack 就报"无应答"
+  # (实测 ack 延迟 0.77–3.16s, 3s 只剩 0.16s 余量)
+  - id: lock_reply_watchdog
     mode: restart
     then:
-      - repeat:
-          count: 45
+      - lambda: |-
+          id(lock_replied) = false;
+          id(lock_reply_text) = "等待应答…";
+      - binary_sensor.template.publish:
+          id: door_lock_replied
+          state: false
+      - text_sensor.template.publish:
+          id: door_lock_reply
+          state: !lambda 'return id(lock_reply_text);'
+      - delay: 5s
+      - if:
+          condition:
+            lambda: return !id(lock_replied);
           then:
-            - espnow.send:
-                address: "b0:a6:04:57:63:b0"
-                data: [0x03]
-            - delay: 25ms
-
-  # 白天模式: 07:00 发送, 门锁在 20s 夜间周期
-  # 840×25ms = 21s > 20s 周期
-  - id: send_day_cmd
-    mode: restart
-    then:
-      - repeat:
-          count: 840
-          then:
-            - espnow.send:
-                address: "b0:a6:04:57:63:b0"
-                data: [0x04]
-            - delay: 25ms
+            - lambda: |-
+                id(lock_reply_text) = "❌ 无应答";
+                id(wait_ack) = 0;
+            - text_sensor.template.publish:
+                id: door_lock_reply
+                state: !lambda 'return id(lock_reply_text);'
 
 
 # ===================================================================
@@ -137,8 +238,14 @@ button:
     icon: "mdi:door-open"
     on_press:
       then:
-        - logger.log: "触发开门 → ESP-NOW 重复发送中..."
-        - script.execute: send_open_cmd
+        - logger.log:
+            format: "触发开门 → ESP-NOW 重复发送中..."
+            level: INFO
+        - lambda: id(wait_ack) = 0x10;
+        - script.execute: lock_reply_watchdog
+        - script.execute:
+            id: send_direct_cmd
+            cmd: 0x01
 
   - platform: template
     name: "Door Close"
@@ -146,17 +253,30 @@ button:
     icon: "mdi:door-closed-lock"
     on_press:
       then:
-        - logger.log: "触发关门 → ESP-NOW 重复发送中..."
-        - script.execute: send_close_cmd
+        - logger.log:
+            format: "触发关门 → ESP-NOW 重复发送中..."
+            level: INFO
+        - lambda: id(wait_ack) = 0x20;
+        - script.execute: lock_reply_watchdog
+        - script.execute:
+            id: send_direct_cmd
+            cmd: 0x02
 
+  # 模式切换不设看门狗: 白天突发要发 ~60s, 短窗口的看门狗只会误报"无应答"
+  # 切换结果看 "Door Lock Mode" (10s 轮询)
   - platform: template
     name: "Night Mode"
     id: door_night_btn
     icon: "mdi:weather-night"
     on_press:
       then:
-        - logger.log: "手动触发夜间模式 → ESP-NOW 发送中..."
-        - script.execute: send_night_cmd
+        - logger.log:
+            format: "手动触发夜间模式 → ESP-NOW 发送中..."
+            level: INFO
+        - script.execute:
+            id: send_mode_cmd
+            cmd: 0x03
+            times: 45
 
   - platform: template
     name: "Day Mode"
@@ -164,8 +284,13 @@ button:
     icon: "mdi:weather-sunny"
     on_press:
       then:
-        - logger.log: "手动触发白天模式 → ESP-NOW 发送中..."
-        - script.execute: send_day_cmd
+        - logger.log:
+            format: "手动触发白天模式 → ESP-NOW 发送中..."
+            level: INFO
+        - script.execute:
+            id: send_mode_cmd
+            cmd: 0x04
+            times: 840
 
   - platform: restart
     name: "Gateway Restart"
@@ -176,6 +301,32 @@ button:
 binary_sensor:
   - platform: status
     name: "Gateway Status"
+
+  # 门锁是否回了应用层 ack (按开关门时由 lock_reply_watchdog 复位)
+  - platform: template
+    name: "Door Lock Replied"
+    id: door_lock_replied
+    icon: "mdi:lock-check"
+
+text_sensor:
+  # 门锁最后一次应答内容
+  - platform: template
+    name: "Door Lock Reply"
+    id: door_lock_reply
+    icon: "mdi:message-reply-text"
+    update_interval: 60s
+    lambda: |-
+      return {id(lock_reply_text)};
+
+  # 门锁当前模式: 夜间 20s 唤醒一次 / 白天 ~1.64s 唤醒一次
+  # 只在门锁 ack 确认后才更新, 重启保留 (来源见 on_receive)
+  - platform: template
+    name: "Door Lock Mode"
+    id: door_lock_mode
+    icon: "mdi:theme-light-dark"
+    update_interval: 10s
+    lambda: |-
+      return {id(lock_night) ? "夜间" : "白天"};
 
 sensor:
   - platform: wifi_signal
