@@ -96,9 +96,9 @@ esptool.py --port COMx read_mac
 
 | 设备 | 配置文件 | 板型 | MAC |
 |------|----------|------|-----|
-| 门锁 (ESP-NOW) | `configs/actuators/door-espnow.yaml` | airm2m_core_esp32c3 | 34:CD:B0:A7:BC:00 |
+| 门锁 (ESP-NOW) | `configs/actuators/door-espnow-idf/` (裸 IDF 固件, 实际在用) | airm2m_core_esp32c3 | B0:A6:04:57:63:B0 |
 | 门锁网关 | `configs/actuators/door-gateway.yaml` | airm2m_core_esp32c3 | 9C:13:9E:73:88:F4 |
-| 门锁 (WiFi版) | `configs/actuators/door.yaml` | airm2m_core_esp32c3 | 34:CD:B0:A7:BC:00 |
+| 门锁 (WiFi版) | `configs/actuators/door.yaml` | airm2m_core_esp32c3 | B0:A6:04:57:63:B0 |
 
 ## Important Files
 
